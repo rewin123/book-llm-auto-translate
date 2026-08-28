@@ -2,7 +2,7 @@ import type { Messages } from './en.ts';
 
 export const ru: Messages = {
   appName: 'Book LLM Auto-Translate',
-  tagline: 'Перевод EPUB и FB2 прямо в браузере. Вёрстка, картинки и шрифты остаются на месте.',
+  tagline: 'Перевод EPUB и FB2 прямо в браузере. В markdown, из markdown — новый EPUB.',
   themeLight: 'Светлая тема',
   themeDark: 'Тёмная тема',
 
@@ -17,9 +17,9 @@ export const ru: Messages = {
   demo: 'Открыть пример — ключ не нужен',
   replace: 'Заменить',
   parsing: 'Разбираем книгу…',
-  parsingHint: 'Распаковываем контейнер и делим на главы',
+  parsingHint: 'Переводим главы в markdown',
   bookMeta: '{format} · глав: {chapters} · фрагментов: {chunks} · {size}',
-  bookPrivacy: 'Файл остаётся на устройстве. В модель уходит только текст очередного фрагмента.',
+  bookPrivacy: 'Файл остаётся на устройстве. В модель уходит только markdown очередного фрагмента.',
   bookReady: 'Готово',
 
   sourceLang: 'Переводим с',
@@ -51,7 +51,7 @@ export const ru: Messages = {
   keyStorageMore: 'Где он лежит и чем это рискованно',
   keyStorageDetail:
     'Ключ лежит в localStorage этого сайта под именем booktrans.v1.providers и отправляется только выбранному провайдеру. Любой скрипт, который сможет выполниться на этой странице, сможет его прочитать — не размещайте приложение на домене, который отдаёт чужой HTML.',
-  mockNote: 'Демо-провайдер просто переворачивает текст внутри тегов. Без ключа, без сети и без оплаты.',
+  mockNote: 'Демо-провайдер переворачивает читаемый текст и не трогает markdown. Без ключа, без сети и без оплаты.',
   clearKey: 'Удалить ключ',
 
   advanced: 'Дополнительно',
@@ -143,7 +143,7 @@ export const ru: Messages = {
   compareOriginal: 'Только оригинал',
   original: 'Оригинал · {lang}',
   translation: 'Перевод · {lang}',
-  validated: 'разметка проверена',
+  validated: 'проверка пройдена',
   chunkHeading: 'Фрагмент {n} из {total}',
   chunkPending: 'ещё не переведён',
   chunkKept: 'остался на языке оригинала ({lang})',
@@ -154,17 +154,17 @@ export const ru: Messages = {
   followLive: 'Следить за текущим фрагментом',
 
   issuesTitle: 'Фрагментов осталось на языке оригинала: {n}.',
-  issuesBody: 'Разметка от модели не прошла проверку после трёх попыток.',
+  issuesBody: 'Markdown от модели не прошёл проверку после трёх попыток.',
   issuesReview: 'Посмотреть',
   issuesRetry: 'Повторить их',
-  details: 'Подробности — запросы, повторы, исходная разметка',
+  details: 'Подробности — запросы, повторы, исходный markdown',
 
   trialFinished: 'Пробный запуск закончен — переведено фрагментов: {n}.',
   trialFinishedBody: 'Прочитайте их ниже. Если интонация верная, продолжайте с остальной книгой.',
   trialContinue: 'Перевести остальное',
 
   doneTitle: '«{title}» переведена',
-  doneSubtitle: '{from} → {to} · заняло {time} · картинки, шрифты и структура файла сохранены.',
+  doneSubtitle: '{from} → {to} · заняло {time} · собран новый EPUB из переведённого markdown.',
   doneChunks: 'Фрагментов',
   doneTranslated: 'Переведено',
   doneKept: 'Без перевода',
@@ -172,7 +172,7 @@ export const ru: Messages = {
   doneCost: 'Стоимость',
   doneKeptTitle: 'Фрагментов осталось на языке оригинала: {n}.',
   doneKeptBody:
-    'Их разметка трижды не прошла проверку, поэтому вместо сломанной вёрстки сохранён исходный текст.',
+    'Они трижды не прошли проверку, поэтому вместо сломанной главы сохранён исходный markdown.',
   download: 'Скачать {file}',
   downloadPartial: 'Скачать то, что готово',
   downloadPartialHint:

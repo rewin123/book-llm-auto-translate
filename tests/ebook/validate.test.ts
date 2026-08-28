@@ -2,21 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { validateTranslation } from '../../src/ebook/validate.ts';
 
 describe('translation validation', () => {
-  const src = '<p id="p1">Hello <em>world</em> <a href="n.html">go</a></p>';
+  const src =
+    'Hello *world* and a [go](n.html) plus ![cover](images/cover.png).';
 
-  it('accepts matching markup', () => {
-    const dst = '<p id="p1">Привет <em>мир</em> <a href="n.html">далее</a></p>';
+  it('accepts matching markdown', () => {
+    const dst =
+      'Привет *мир* and a [далее](n.html) plus ![обложка](images/cover.png).';
     expect(validateTranslation(src, dst).ok).toBe(true);
   });
 
-  it('rejects tag mismatch, missing href, emptiness, and refusals', () => {
-    expect(validateTranslation(src, '<p id="p1">Hi</p>').ok).toBe(false);
-    expect(validateTranslation(src, '<p id="p1">Hello <em>world</em> <a href="x.html">go</a></p>').ok).toBe(
-      false,
-    );
+  it('rejects a missing image, emptiness, and refusals', () => {
+    expect(validateTranslation(src, 'Привет *мир* [далее](n.html).').ok).toBe(false);
     expect(validateTranslation(src, '').ok).toBe(false);
-    expect(validateTranslation(src, '<p id="p1">I cannot translate this <em>x</em> <a href="n.html">g</a></p>').ok).toBe(
-      false,
-    );
+    expect(
+      validateTranslation(
+        src,
+        'I cannot translate this *x* [g](n.html) ![cover](images/cover.png).',
+      ).ok,
+    ).toBe(false);
+  });
+
+  it('does not require identical emphasis markers', () => {
+    const dst = 'Привет **мир** and a [далее](n.html) plus ![обложка](images/cover.png).';
+    expect(validateTranslation(src, dst).ok).toBe(true);
   });
 });

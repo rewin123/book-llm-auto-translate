@@ -2,7 +2,7 @@
 
 A **zero-install browser app** that translates EPUB and FB2 books with your own LLM key. There is no backend: the file never leaves the device. Only the text of the current chunk is sent to the model.
 
-Unlike CLI tools such as `bilingual_book_maker`, the original container is **cloned**: images, fonts, CSS, and OPF stay put. Only the translated documents are swapped in.
+Unlike CLI tools such as `bilingual_book_maker`, the book is converted to **markdown**, translated as markdown, then packed as a **new EPUB**. That avoids injecting model output back into the original XHTML, which used to break parsers.
 
 A style agent samples the book first and drafts style guidelines. You edit them **before** any chapter is billed.
 
@@ -19,7 +19,7 @@ Live app: **[rewin123.github.io/book-llm-auto-translate](https://rewin123.github
 1. Open the [live app](https://rewin123.github.io/book-llm-auto-translate/) (or run it locally).
 2. Click **Try the sample — no key needed**.
 3. That loads a public-domain *Alice in Wonderland* excerpt and the **Mock** provider.
-4. Mock never hits the network and never bills: it **reverses text** inside tags so you can walk the pipeline.
+4. Mock never hits the network and never bills: it **reverses readable text** in the markdown so you can walk the pipeline.
 
 On GitHub Pages it is the same: **Try the sample** + **Mock**.
 
@@ -65,9 +65,9 @@ Drop a file or click **Choose a file**.
 | FictionBook | `.fb2` |
 | FB2 in an archive | `.fb2.zip`, `.fbz`, or a `.zip` that contains a `.fb2` |
 
-FB2 is decoded from the XML declaration, including **windows-1251**, **koi8-r**, UTF-8/16, and ISO-8859-1. The output declaration is rewritten to UTF-8.
+FB2 is decoded from the XML declaration, including **windows-1251**, **koi8-r**, UTF-8/16, and ISO-8859-1. The book is then converted to markdown; the download is always a UTF-8 EPUB.
 
-What **does not** leave the device: the container itself (images, fonts, styles). The API only sees the current chunk’s markup, plus the style guidelines, matching glossary rows, and the previous two chunks.
+What **does not** leave the device: the original file (images stay local and are copied into the new EPUB). The API only sees the current chunk’s markdown, plus the style guidelines, matching glossary rows, and the previous two chunks.
 
 After parsing you see format, chapter count, chunk count, and size. If the file does not open:
 
@@ -170,11 +170,11 @@ On screen:
 - progress, chapter, remaining-time estimate, spend so far, seconds per chunk;
 - compare **side by side / translation only / original only**;
 - navigate chunks and chapters; you can leave the live chunk and jump back;
-- a log of requests, retries, and raw markup.
+- a log of requests, retries, and raw markdown.
 
 **Pause** and **Stop** abort the in-flight request. That chunk is **not** committed. **Resume** continues from the same index.
 
-If the model’s markup fails validation three times, the **original** chunk is kept so the book still opens. You can **Retry these** later.
+If the model’s markdown fails validation three times, the **original** chunk is kept so the book still opens. You can **Retry these** later.
 
 After a partial run: read the result, then **Translate the rest**.
 
@@ -182,11 +182,11 @@ After a partial run: read the result, then **Translate the rest**.
 
 ### Done
 
-Output name: `{source-name}.{lang}.epub` or `.fb2` — for example `book.ru.epub`.
+Output name: `{source-name}.{lang}.epub` — for example `book.ru.epub`. FB2 input is converted the same way and still comes out as EPUB.
 
-Summary: translated vs kept original, tokens, cost, time. Images, fonts, and container structure are preserved.
+Summary: translated vs kept original, tokens, cost, time. Referenced images are copied into the new file; original CSS, fonts, and container structure are not kept.
 
-- **Download** — the finished file.
+- **Download** — the finished EPUB.
 - **Retry** chunks that stayed in the source language.
 - **Export .json** — style guidelines and glossary for the next book.
 - **Translate another book** — reset (with confirmation).
@@ -195,11 +195,12 @@ Summary: translated vs kept original, tokens, cost, time. Images, fonts, and con
 
 ## Pipeline
 
-1. Split by chapter (EPUB: spine documents; FB2: `section` in `body`; `notes` / `comments` bodies are skipped), then by up to *N* characters on tag and word boundaries.
-2. Style agent (`read_chunk`) writes style guidelines → you edit → pick how many chunks to run → continue.
-3. Each chunk is translated with the approved guide, matching glossary rows, and the last two chunks.
-4. Markup is validated: well-formed XML, the same tag multiset, preserved `id` / `href` / `src`, plausible text length, no explicit model refusal. Three failures keep the original chunk.
-5. The output file is a clone of the input container with translated documents swapped in. FB2 language metadata is updated.
+1. Convert EPUB/FB2 to markdown (spine documents or FB2 `section`s become chapters; `notes` / `comments` bodies are skipped). Images become `![alt](path)`.
+2. Split markdown by up to *N* characters on paragraph, heading, and word boundaries (never inside a link target or code fence).
+3. Style agent (`read_chunk`) writes style guidelines → you edit → pick how many chunks to run → continue.
+4. Each chunk is translated as markdown with the approved guide, matching glossary rows, and the last two chunks.
+5. Markdown is validated: non-empty, plausible text length, preserved image paths and link targets, no explicit model refusal. Three failures keep the original chunk.
+6. Translated chunks are concatenated into one markdown document, then converted to a new EPUB.
 
 One model request times out after **3 minutes**.
 
@@ -255,6 +256,7 @@ Other localStorage keys: `booktrans.v1.setup`, `booktrans.v1.locale`, `booktrans
 - One chunk at a time; parallel windows exist in the code but are not enabled.
 - No whole-book RAG — only the style guidelines, glossary, and two neighbouring chunks.
 - PDF, MOBI, and AZW are not read.
+- Output is always EPUB. Original CSS, fonts, and page layout are not preserved.
 - xAI from the browser is often blocked by CORS.
 - The cost banner is an estimate, not the provider’s bill.
 
@@ -266,7 +268,7 @@ Layout (more in [CONTRIBUTING.md](CONTRIBUTING.md)):
 
 | Path | Role |
 | --- | --- |
-| `src/ebook/` | parse, encodings (incl. windows-1251), chunk, validate markup, pack EPUB/FB2 |
+| `src/ebook/` | parse EPUB/FB2 → markdown, encodings (incl. windows-1251), chunk, validate markdown, pack a new EPUB |
 | `src/job/` | `JobRunner`, IndexedDB checkpoint, abort, cost estimate |
 | `src/graph/` | translate node (style guide + glossary + last two chunks) |
 | `src/style/` | style agent with `read_chunk` |
@@ -274,7 +276,7 @@ Layout (more in [CONTRIBUTING.md](CONTRIBUTING.md)):
 | `src/glossary/` | name map merge/filter |
 | `src/ui/`, `src/App.tsx` | React tree; `src/i18n/` and `src/storage/` |
 
-Rules: do not add a server. Keys stay in `booktrans.v1.*` localStorage. Do not rewrite EPUB from scratch — clone the zip and replace translated documents.
+Rules: do not add a server. Keys stay in `booktrans.v1.*` localStorage. Do not splice translated markup back into the original EPUB — convert to markdown, translate, then build a new EPUB.
 
 Test fixtures live in `src/ebook/demoBook.ts` (Alice excerpt, public domain).
 

@@ -1,6 +1,6 @@
 export const en = {
   appName: 'Book LLM Auto-Translate',
-  tagline: 'Translate EPUB and FB2 in the browser. Layout, images and fonts stay put.',
+  tagline: 'Translate EPUB and FB2 in the browser. Markdown in, a new EPUB out.',
   themeLight: 'Light theme',
   themeDark: 'Dark theme',
 
@@ -15,9 +15,9 @@ export const en = {
   demo: 'Try the sample — no key needed',
   replace: 'Replace',
   parsing: 'Parsing book…',
-  parsingHint: 'Unpacking the container and splitting chapters',
+  parsingHint: 'Converting chapters to markdown',
   bookMeta: '{format} · {chapters} chapters · {chunks} chunks · {size}',
-  bookPrivacy: 'Stays on this device. Only the text of each chunk is sent to the model you pick.',
+  bookPrivacy: 'Stays on this device. Only the markdown of each chunk is sent to the model you pick.',
   bookReady: 'Ready',
 
   sourceLang: 'Translate from',
@@ -49,7 +49,7 @@ export const en = {
   keyStorageMore: 'Where it is stored, and the risk',
   keyStorageDetail:
     'The key lives in localStorage on this origin under booktrans.v1.providers, and travels only to the provider you selected. Any script that can run on this page can read it — do not host this app on a domain that also serves untrusted HTML.',
-  mockNote: 'The sample provider reverses text inside tags. No key, no network, no cost.',
+  mockNote: 'The sample provider reverses readable text and leaves markdown structure alone. No key, no network, no cost.',
   clearKey: 'Forget this key',
 
   advanced: 'Advanced',
@@ -141,7 +141,7 @@ export const en = {
   compareOriginal: 'Original only',
   original: 'Original · {lang}',
   translation: 'Translation · {lang}',
-  validated: 'markup checks passed',
+  validated: 'checks passed',
   chunkHeading: 'Chunk {n} of {total}',
   chunkPending: 'not translated yet',
   chunkKept: 'kept in {lang}',
@@ -152,17 +152,17 @@ export const en = {
   followLive: 'Follow the live chunk',
 
   issuesTitle: '{n} chunks kept their original text.',
-  issuesBody: "The model's markup did not survive validation after three tries.",
+  issuesBody: "The model's markdown did not survive validation after three tries.",
   issuesReview: 'Review',
   issuesRetry: 'Retry these',
-  details: 'Details — request log, retries, raw markup',
+  details: 'Details — request log, retries, raw markdown',
 
   trialFinished: 'Trial finished — {n} chunks translated.',
   trialFinishedBody: 'Read them below. If the voice is right, carry on with the rest of the book.',
   trialContinue: 'Translate the rest',
 
   doneTitle: '{title} is translated',
-  doneSubtitle: '{from} → {to} · finished in {time} · the file keeps its original images, fonts and structure.',
+  doneSubtitle: '{from} → {to} · finished in {time} · packed as a new EPUB from the translated markdown.',
   doneChunks: 'Chunks',
   doneTranslated: 'Translated',
   doneKept: 'Kept original',
@@ -170,7 +170,7 @@ export const en = {
   doneCost: 'Cost',
   doneKeptTitle: '{n} passages are still in the source language.',
   doneKeptBody:
-    'They failed markup validation three times, so the original was kept rather than shipping broken markup.',
+    'They failed validation three times, so the original markdown was kept rather than shipping a broken chapter.',
   download: 'Download {file}',
   downloadPartial: 'Download what is finished',
   downloadPartialHint:

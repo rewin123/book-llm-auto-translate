@@ -4,7 +4,7 @@ import type { GlossaryEntry } from '../glossary/index.ts';
 import type { CostEstimate, JobEvent } from '../job/types.ts';
 import { scaleCost } from '../job/cost.ts';
 import { approxUsd, fmt, formatDuration, useT } from '../i18n/index.ts';
-import { extractPlainText } from '../ebook/xml.ts';
+import { markdownToPlainText } from '../ebook/markdown.ts';
 import { ArrowRight, ChevronRight } from './icons.tsx';
 import { GlossaryTable } from './GlossaryTable.tsx';
 
@@ -143,7 +143,7 @@ export function BriefView(props: Props) {
                       {chunk.chapterTitle}
                     </div>
                     <div className="serif" style={{ fontSize: '0.95rem', lineHeight: 1.55 }}>
-                      {extractPlainText(chunk.xml).slice(0, 150).trim()}…
+                      {markdownToPlainText(chunk.markdown).slice(0, 150).trim()}…
                     </div>
                   </div>
                 ))}

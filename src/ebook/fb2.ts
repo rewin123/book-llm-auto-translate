@@ -1,7 +1,9 @@
 import { indexChunks } from './chunk.ts';
-import { decodeXmlBytes, toUtf8Xml } from './encoding.ts';
-import { findAll, findEl, innerXml, localName, parseXml, textContent } from './xml.ts';
-import type { Chunk, PackedBook, ParsedBook } from './types.ts';
+import { ImageBag, mimeFromPath } from './images.ts';
+import { ensureHeading, htmlToMarkdown } from './markdown.ts';
+import { decodeXmlBytes } from './encoding.ts';
+import { findAll, findEl, localName, parseXml, textContent } from './xml.ts';
+import type { BookImage, ParsedBook } from './types.ts';
 
 function sectionTitle(section: Element, fallback: string): string {
   const title = Array.from(section.childNodes).find(
@@ -10,14 +12,44 @@ function sectionTitle(section: Element, fallback: string): string {
   return textContent(title) || fallback;
 }
 
-export function parseFb2Xml(xml: string, fileName: string, maxChunkChars: number, sourceBytes: Uint8Array): ParsedBook {
+function loadFb2Images(doc: Document): ImageBag {
+  const bag = new ImageBag();
+  for (const bin of findAll(doc, 'binary')) {
+    const id = bin.getAttribute('id') || '';
+    if (!id) continue;
+    const type = bin.getAttribute('content-type') || mimeFromPath(id, 'image/jpeg');
+    const b64 = (bin.textContent || '').replace(/\s+/g, '');
+    if (!b64) continue;
+    try {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      bag.add(id, bytes, type);
+    } catch {
+      // skip a corrupt binary rather than failing the whole book
+    }
+  }
+  return bag;
+}
+
+export function extractFb2Images(bytes: Uint8Array): BookImage[] {
+  const xml = decodeXmlBytes(bytes);
+  const doc = parseXml(xml);
+  return loadFb2Images(doc).images;
+}
+
+export function parseFb2Xml(
+  xml: string,
+  fileName: string,
+  maxChunkChars: number,
+  sourceBytes: Uint8Array,
+): ParsedBook {
   const doc = parseXml(xml);
   const root = doc.documentElement;
   const bookTitle =
     textContent(findEl(findEl(root, 'description') ?? root, 'book-title')) ||
     fileName.replace(/\.[^.]+$/, '');
+  const images = loadFb2Images(doc);
 
-  const pieces: { documentPath: string; chapterTitle: string; xml: string }[] = [];
+  const pieces: { documentPath: string; chapterTitle: string; markdown: string }[] = [];
   const bodies = findAll(root, 'body');
   let n = 0;
   for (const body of bodies) {
@@ -28,20 +60,22 @@ export function parseFb2Xml(xml: string, fileName: string, maxChunkChars: number
     ) as Element[];
     if (sections.length === 0) {
       n += 1;
+      const markdown = ensureHeading(htmlToMarkdown(body, { images }), bookTitle);
       pieces.push({
         documentPath: `body:${name || n}`,
         chapterTitle: bookTitle,
-        xml: innerXml(body),
+        markdown,
       });
       continue;
     }
     sections.forEach((section, idx) => {
       n += 1;
       const path = `section:${name || 'main'}:${idx}`;
+      const chapterTitle = sectionTitle(section, `${bookTitle} ${n}`);
       pieces.push({
         documentPath: path,
-        chapterTitle: sectionTitle(section, `${bookTitle} ${n}`),
-        xml: innerXml(section),
+        chapterTitle,
+        markdown: ensureHeading(htmlToMarkdown(section, { images }), chapterTitle),
       });
     });
   }
@@ -52,6 +86,7 @@ export function parseFb2Xml(xml: string, fileName: string, maxChunkChars: number
     chunks: indexChunks(pieces, maxChunkChars),
     sourceBytes,
     title: bookTitle,
+    images: images.images,
   };
 }
 
@@ -62,69 +97,4 @@ export function parseFb2(
 ): ParsedBook {
   const xml = decodeXmlBytes(bytes);
   return parseFb2Xml(xml, fileName, maxChunkChars, bytes);
-}
-
-export function packFb2(options: {
-  sourceBytes: Uint8Array;
-  chunks: Chunk[];
-  translations: string[];
-  targetLang: string;
-  outName: string;
-}): PackedBook {
-  const xml = toUtf8Xml(decodeXmlBytes(options.sourceBytes));
-  const doc = parseXml(xml);
-  const root = doc.documentElement;
-
-  const lang = findEl(root, 'lang');
-  if (lang) lang.textContent = options.targetLang;
-
-  const byDoc = new Map<string, string[]>();
-  options.chunks.forEach((chunk, i) => {
-    const part = options.translations[i] ?? chunk.xml;
-    const list = byDoc.get(chunk.documentPath) ?? [];
-    list.push(part);
-    byDoc.set(chunk.documentPath, list);
-  });
-
-  const bodies = findAll(root, 'body');
-  let n = 0;
-  for (const body of bodies) {
-    const name = body.getAttribute('name') || '';
-    if (name === 'notes' || name === 'comments') continue;
-    const sections = Array.from(body.childNodes).filter(
-      (c) => c.nodeType === Node.ELEMENT_NODE && localName(c as Element) === 'section',
-    ) as Element[];
-    if (sections.length === 0) {
-      n += 1;
-      const key = `body:${name || n}`;
-      const inner = byDoc.get(key)?.join('');
-      if (inner !== undefined) replaceChildrenFromXml(doc, body, inner);
-      continue;
-    }
-    sections.forEach((section, idx) => {
-      n += 1;
-      const key = `section:${name || 'main'}:${idx}`;
-      const inner = byDoc.get(key)?.join('');
-      if (inner !== undefined) replaceChildrenFromXml(doc, section, inner);
-    });
-  }
-
-  const out = `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(root)}`;
-  return {
-    bytes: new TextEncoder().encode(out),
-    mimeType: 'application/x-fictionbook+xml',
-    fileName: options.outName,
-  };
-}
-
-function replaceChildrenFromXml(doc: Document, el: Element, inner: string) {
-  while (el.firstChild) el.removeChild(el.firstChild);
-  const wrapped = parseXml(
-    `<fb xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">${inner}</fb>`,
-  );
-  const root = wrapped.documentElement;
-  const kids = Array.from(root.childNodes);
-  for (const kid of kids) {
-    el.appendChild(doc.importNode(kid, true));
-  }
 }

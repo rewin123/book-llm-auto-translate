@@ -14,7 +14,7 @@ describe('FB2 encodings', () => {
 
   it('parses windows-1251 books into readable chunks', () => {
     const parsed = parseFb2(encodeWin1251Fb2(), 'test.fb2', 2000);
-    const blob = parsed.chunks.map((c) => c.xml).join('');
+    const blob = parsed.chunks.map((c) => c.markdown).join('');
     expect(blob).toContain('Привет');
     expect(parsed.title).toBe('Тест');
   });

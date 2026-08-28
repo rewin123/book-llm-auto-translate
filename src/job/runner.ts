@@ -1,5 +1,5 @@
 import { packBook, parseBook } from '../ebook/index.ts';
-import type { PackedBook, ParsedBook } from '../ebook/types.ts';
+import type { Chunk, PackedBook, ParsedBook } from '../ebook/types.ts';
 import { mergeAfterChunk, translateChunkNode } from '../graph/nodes.ts';
 import type { GlossaryEntry } from '../glossary/index.ts';
 import { createLlmClient } from '../llm/index.ts';
@@ -194,9 +194,18 @@ export class JobRunner {
     this.book = {
       format: cp.format,
       fileName: cp.fileName,
-      chunks: cp.chunks,
+      chunks: cp.chunks.map((c) => {
+        const raw = c as Chunk & { xml?: string };
+        return {
+          index: raw.index,
+          documentPath: raw.documentPath,
+          chapterTitle: raw.chapterTitle,
+          markdown: raw.markdown || raw.xml || '',
+        };
+      }),
       sourceBytes: cp.fileBytes,
       title: cp.title,
+      images: [],
     };
     this.styleGuide = cp.styleGuide;
     this.glossary = cp.glossary;
@@ -312,8 +321,8 @@ export class JobRunner {
         this.glossary = mergeAfterChunk(this.glossary, result.glossary);
         this.translated.push({
           index: this.index,
-          original: chunk.xml,
-          translation: result.xml,
+          original: chunk.markdown,
+          translation: result.markdown,
           usedOriginal: result.usedOriginal,
           reason: result.reason,
           ms,
@@ -325,7 +334,7 @@ export class JobRunner {
             reason: result.reason ?? 'unknown',
           });
         } else {
-          this.log('chunk', 'chunkDone', { n: this.index + 1, chapter: chunk.chapterTitle }, result.xml);
+          this.log('chunk', 'chunkDone', { n: this.index + 1, chapter: chunk.chapterTitle }, result.markdown);
         }
         this.index += 1;
         await this.persist();
@@ -382,8 +391,8 @@ export class JobRunner {
         if (at >= 0) {
           this.translated[at] = {
             index: idx,
-            original: chunk.xml,
-            translation: result.xml,
+            original: chunk.markdown,
+            translation: result.markdown,
             usedOriginal: result.usedOriginal,
             reason: result.reason,
             ms,
@@ -396,7 +405,7 @@ export class JobRunner {
             reason: result.reason ?? 'unknown',
           });
         } else {
-          this.log('chunk', 'chunkDone', { n: idx + 1, chapter: chunk.chapterTitle }, result.xml);
+          this.log('chunk', 'chunkDone', { n: idx + 1, chapter: chunk.chapterTitle }, result.markdown);
         }
         await this.persist();
         this.emit();
@@ -422,7 +431,7 @@ export class JobRunner {
   async pack(): Promise<PackedBook | null> {
     if (!this.book || !this.settings) return null;
     const byIndex = new Map(this.translated.map((t) => [t.index, t.translation]));
-    const translations = this.book.chunks.map((c, i) => byIndex.get(i) ?? c.xml);
+    const translations = this.book.chunks.map((c, i) => byIndex.get(i) ?? c.markdown);
     this.packed = await packBook({
       book: this.book,
       translations,
