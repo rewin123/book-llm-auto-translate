@@ -207,6 +207,7 @@ a:hover {
   color: var(--ink);
   cursor: pointer;
   flex-shrink: 0;
+  text-decoration: none;
 }
 
 /* ── Stepper ────────────────────────────────────────────────────────────── */

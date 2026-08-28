@@ -10,7 +10,6 @@ export function detectLocale(): Locale {
   } catch {
     /* ignore */
   }
-  if (typeof navigator !== 'undefined' && /^ru\b/i.test(navigator.language)) return 'ru';
   return 'en';
 }
 

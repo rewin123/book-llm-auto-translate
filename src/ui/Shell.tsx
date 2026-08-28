@@ -1,9 +1,11 @@
 import { Fragment } from 'react';
 import type { Locale, Theme } from '../storage/prefs.ts';
 import { useT } from '../i18n/index.ts';
-import { MoonIcon, SunIcon, CheckIcon } from './icons.tsx';
+import { MoonIcon, SunIcon, CheckIcon, GithubIcon } from './icons.tsx';
 
 export type Step = 'setup' | 'brief' | 'run';
+
+const GITHUB_URL = 'https://github.com/rewin123/book-llm-auto-translate';
 
 export function AppHeader(props: {
   locale: Locale;
@@ -20,6 +22,16 @@ export function AppHeader(props: {
         {!props.compact && <p>{t.tagline}</p>}
       </div>
       <div className="header-tools">
+        <a
+          className="icon-btn"
+          href={GITHUB_URL}
+          target="_blank"
+          rel="noreferrer"
+          title={t.github}
+          aria-label={t.github}
+        >
+          <GithubIcon />
+        </a>
         <div className="segmented" role="group" aria-label="Language">
           <button
             type="button"

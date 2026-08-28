@@ -5,6 +5,7 @@ export const ru: Messages = {
   tagline: 'Перевод EPUB и FB2 прямо в браузере. В markdown, из markdown — новый EPUB.',
   themeLight: 'Светлая тема',
   themeDark: 'Тёмная тема',
+  github: 'Исходный код на GitHub',
 
   step1: 'Книга и модель',
   step2: 'Стилевые указания',

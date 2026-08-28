@@ -3,6 +3,7 @@ export const en = {
   tagline: 'Translate EPUB and FB2 in the browser. Markdown in, a new EPUB out.',
   themeLight: 'Light theme',
   themeDark: 'Dark theme',
+  github: 'Source on GitHub',
 
   step1: 'Book & model',
   step2: 'Style guidelines',
