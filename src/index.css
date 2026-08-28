@@ -991,6 +991,42 @@ details.disclosure .body {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── LLM call log ───────────────────────────────────────────────────────── */
+
+details.llm-call-log > summary {
+  flex-wrap: wrap;
+}
+
+details.llm-call-log > summary span:last-child {
+  flex: 1 1 12rem;
+}
+
+.llm-call-attempt + .llm-call-attempt {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line);
+}
+
+.llm-call-log pre {
+  margin: 0 0 var(--space-4);
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 28em;
+  overflow: auto;
+  color: var(--ink);
+}
+
+.llm-call-log section:last-child pre {
+  margin-bottom: 0;
+}
+
 /* ── Style guidelines ───────────────────────────────────────────────────── */
 
 .brief-grid {

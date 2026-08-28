@@ -31,6 +31,11 @@ describe('graph + mock LLM', () => {
       });
       expect(result.usedOriginal).toBe(false);
       expect(validateTranslation(chunk.markdown, result.markdown).ok).toBe(true);
+      expect(result.llmCalls.length).toBe(1);
+      expect(result.llmCalls[0]?.instructions).toContain('STYLE GUIDE (mandatory):');
+      expect(result.llmCalls[0]?.user).toContain('<<<SOURCE>>>');
+      expect(result.llmCalls[0]?.user).toContain(chunk.markdown.trim());
+      expect(result.llmCalls[0]?.response).toContain('<<<TRANSLATION>>>');
       glossary = mergeGlossary(glossary, result.glossary);
       translated.push(result.markdown);
       lastTwo.push({

@@ -67,7 +67,8 @@ export function ChapterRail({ chunks, translated, liveIndex, currentIndex, onJum
       <ul className="rail-list">
         {chapters.map((ch) => {
           const current = currentIndex >= ch.first && currentIndex < ch.first + ch.count;
-          const label = ch.title.split('::')[1] || ch.title;
+          const raw = ch.title.split('::')[1] || ch.title;
+          const label = raw.trim() || t.untitled;
           return (
             <li key={ch.title + ch.first}>
               <button

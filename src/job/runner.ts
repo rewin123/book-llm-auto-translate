@@ -326,6 +326,7 @@ export class JobRunner {
           usedOriginal: result.usedOriginal,
           reason: result.reason,
           ms,
+          llmCalls: result.llmCalls,
         });
         if (result.usedOriginal) {
           this.log('error', 'keptOriginal', {
@@ -396,6 +397,7 @@ export class JobRunner {
             usedOriginal: result.usedOriginal,
             reason: result.reason,
             ms,
+            llmCalls: result.llmCalls,
           };
         }
         if (result.usedOriginal) {

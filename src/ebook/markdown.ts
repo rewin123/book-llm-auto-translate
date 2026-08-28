@@ -389,13 +389,13 @@ export function markdownToXhtmlFragment(md: string): string {
 
 export function splitMarkdownIntoChapters(md: string): { title: string; body: string }[] {
   const trimmed = md.trim();
-  if (!trimmed) return [{ title: 'Chapter 1', body: '' }];
+  if (!trimmed) return [{ title: '', body: '' }];
   const parts = trimmed.split(/(?=^#{1,2} )/m).filter((p) => p.trim());
-  if (parts.length === 0) return [{ title: 'Chapter 1', body: trimmed }];
-  return parts.map((part, i) => {
+  if (parts.length === 0) return [{ title: '', body: trimmed }];
+  return parts.map((part) => {
     const first = part.split('\n')[0] ?? '';
     const heading = /^(#{1,2}) (.*)$/.exec(first);
-    const title = heading?.[2]?.trim() || `Chapter ${i + 1}`;
+    const title = heading?.[2]?.trim() ?? '';
     return { title, body: part.trim() };
   });
 }
@@ -404,11 +404,12 @@ export function joinMarkdown(parts: string[]): string {
   return `${parts.map((p) => p.replace(/\s+$/, '')).filter((p) => p.length > 0).join('\n\n')}\n`;
 }
 
-export function ensureHeading(md: string, title: string): string {
-  const trimmed = md.trim();
-  if (!title.trim()) return trimmed ? `${trimmed}\n` : '';
-  if (/^# /m.test(trimmed)) return `${trimmed}\n`;
-  return `# ${title}\n\n${trimmed}\n`;
+/** Label for EPUB nav / `<title>` — the book's own heading, else a short snippet. Never "Chapter N". */
+export function chapterNavTitle(ch: { title: string; body: string }): string {
+  if (ch.title.trim()) return ch.title.trim();
+  const snippet = markdownToPlainText(ch.body).replace(/\s+/g, ' ').trim();
+  if (!snippet) return '';
+  return snippet.length > 48 ? `${snippet.slice(0, 48).trim()}…` : snippet;
 }
 
 function reverseChars(s: string): string {

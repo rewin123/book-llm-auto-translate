@@ -156,6 +156,13 @@ export const en = {
   issuesReview: 'Review',
   issuesRetry: 'Retry these',
   details: 'Details — request log, retries, raw markdown',
+  llmCallLog: 'Full LLM call',
+  llmCallLogHint: 'Raw instructions, user message and response for this chunk',
+  llmCallInstructions: 'Instructions',
+  llmCallUser: 'User message',
+  llmCallResponse: 'Response',
+  llmCallAttempt: 'Attempt {n} of {total}',
+  untitled: 'Untitled',
 
   trialFinished: 'Trial finished — {n} chunks translated.',
   trialFinishedBody: 'Read them below. If the voice is right, carry on with the rest of the book.',

@@ -1,6 +1,6 @@
 import { indexChunks } from './chunk.ts';
 import { ImageBag, mimeFromPath } from './images.ts';
-import { ensureHeading, htmlToMarkdown } from './markdown.ts';
+import { htmlToMarkdown } from './markdown.ts';
 import { decodeXmlBytes } from './encoding.ts';
 import { findAll, findEl, localName, parseXml, textContent } from './xml.ts';
 import type { BookImage, ParsedBook } from './types.ts';
@@ -60,22 +60,20 @@ export function parseFb2Xml(
     ) as Element[];
     if (sections.length === 0) {
       n += 1;
-      const markdown = ensureHeading(htmlToMarkdown(body, { images }), bookTitle);
       pieces.push({
         documentPath: `body:${name || n}`,
         chapterTitle: bookTitle,
-        markdown,
+        markdown: htmlToMarkdown(body, { images }),
       });
       continue;
     }
     sections.forEach((section, idx) => {
       n += 1;
       const path = `section:${name || 'main'}:${idx}`;
-      const chapterTitle = sectionTitle(section, `${bookTitle} ${n}`);
       pieces.push({
         documentPath: path,
-        chapterTitle,
-        markdown: ensureHeading(htmlToMarkdown(section, { images }), chapterTitle),
+        chapterTitle: sectionTitle(section, ''),
+        markdown: htmlToMarkdown(section, { images }),
       });
     });
   }
