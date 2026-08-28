@@ -158,6 +158,13 @@ export const ru: Messages = {
   issuesReview: 'Посмотреть',
   issuesRetry: 'Повторить их',
   details: 'Подробности — запросы, повторы, исходный markdown',
+  llmCallLog: 'Полный вызов LLM',
+  llmCallLogHint: 'Сырые instructions, user message и ответ для этого фрагмента',
+  llmCallInstructions: 'Instructions',
+  llmCallUser: 'User message',
+  llmCallResponse: 'Ответ',
+  llmCallAttempt: 'Попытка {n} из {total}',
+  untitled: 'Без названия',
 
   trialFinished: 'Пробный запуск закончен — переведено фрагментов: {n}.',
   trialFinishedBody: 'Прочитайте их ниже. Если интонация верная, продолжайте с остальной книгой.',

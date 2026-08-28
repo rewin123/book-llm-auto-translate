@@ -2,7 +2,7 @@ import JSZip from 'jszip';
 import { indexChunks } from './chunk.ts';
 import { ImageBag, isImagePath, mimeFromPath } from './images.ts';
 import {
-  ensureHeading,
+  chapterNavTitle,
   escapeXml,
   htmlToMarkdown,
   markdownToXhtmlFragment,
@@ -92,7 +92,6 @@ export async function parseEpub(
   const pieces: { documentPath: string; chapterTitle: string; markdown: string }[] = [];
 
   const itemrefs = findAll(opf, 'itemref');
-  let chapterN = 0;
   for (const ref of itemrefs) {
     const idref = opfAttr(ref, 'idref');
     const item = manifest.get(idref);
@@ -120,12 +119,9 @@ export async function parseEpub(
       images,
       resolveHref: (href: string) => zipPath(path, href),
     };
-    let markdown = htmlToMarkdown(body, mdOpts);
-    chapterN += 1;
-    const chapterTitle = headingText || `Chapter ${chapterN}`;
-    markdown = ensureHeading(markdown, chapterTitle);
+    const markdown = htmlToMarkdown(body, mdOpts);
     if (!markdown.trim()) continue;
-    pieces.push({ documentPath: path, chapterTitle, markdown });
+    pieces.push({ documentPath: path, chapterTitle: headingText, markdown });
   }
 
   const chunks = indexChunks(pieces, maxChunkChars);
@@ -247,7 +243,7 @@ export async function packEpubFromMarkdown(options: {
   const spine = chapters.map((ch, i) => ({
     id: `ch${i + 1}`,
     href: chapterFileName(i),
-    title: ch.title,
+    title: chapterNavTitle(ch),
     body: ch.body,
   }));
 

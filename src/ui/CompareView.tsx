@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Chunk } from '../ebook/types.ts';
-import type { TranslatedPair } from '../job/types.ts';
+import type { LlmCallAttempt, TranslatedPair } from '../job/types.ts';
 import { fmt, shortLanguageName, useT } from '../i18n/index.ts';
 import { markupToSafeHtml } from './sanitize.ts';
 import { CheckIcon, ChevronLeft, ChevronRight, InfoIcon, WarnIcon } from './icons.tsx';
@@ -61,7 +61,8 @@ export function CompareView(props: Props) {
       <div className="compare-bar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
           <span className="hint">
-            {fmt(t.chunkHeading, { n: idx + 1, total: props.chunks.length })} · {chunk.chapterTitle}
+            {fmt(t.chunkHeading, { n: idx + 1, total: props.chunks.length })}
+            {chunk.chapterTitle.trim() ? ` · ${chunk.chapterTitle}` : ''}
           </span>
           {kept ? (
             <span className="pill warn">
@@ -165,6 +166,44 @@ export function CompareView(props: Props) {
           </section>
         )}
       </div>
+
+      {pair?.llmCalls && pair.llmCalls.length > 0 && <LlmCallLog calls={pair.llmCalls} />}
     </>
+  );
+}
+
+function LlmCallLog({ calls }: { calls: LlmCallAttempt[] }) {
+  const { t } = useT();
+  return (
+    <details className="disclosure llm-call-log">
+      <summary>
+        <span className="chev">
+          <ChevronRight />
+        </span>
+        <strong>{t.llmCallLog}</strong>
+        <span>{t.llmCallLogHint}</span>
+      </summary>
+      <div className="body">
+        {calls.map((call, i) => (
+          <div key={i} className="llm-call-attempt">
+            {calls.length > 1 && (
+              <div className="pane-cap">{fmt(t.llmCallAttempt, { n: i + 1, total: calls.length })}</div>
+            )}
+            <section>
+              <div className="pane-cap">{t.llmCallInstructions}</div>
+              <pre>{call.instructions}</pre>
+            </section>
+            <section>
+              <div className="pane-cap">{t.llmCallUser}</div>
+              <pre>{call.user}</pre>
+            </section>
+            <section>
+              <div className="pane-cap">{t.llmCallResponse}</div>
+              <pre>{call.response}</pre>
+            </section>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }

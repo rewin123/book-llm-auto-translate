@@ -139,8 +139,8 @@ export function BriefView(props: Props) {
                     }}
                   >
                     <div className="hint" style={{ fontSize: 'var(--text-2xs)', marginBottom: 5 }}>
-                      {fmt(t.chunkHeading, { n: index + 1, total: props.chunks.length })} ·{' '}
-                      {chunk.chapterTitle}
+                      {fmt(t.chunkHeading, { n: index + 1, total: props.chunks.length })}
+                      {chunk.chapterTitle.trim() ? ` · ${chunk.chapterTitle}` : ''}
                     </div>
                     <div className="serif" style={{ fontSize: '0.95rem', lineHeight: 1.55 }}>
                       {markdownToPlainText(chunk.markdown).slice(0, 150).trim()}…

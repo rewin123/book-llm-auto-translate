@@ -8,6 +8,7 @@ import {
   markdownToXhtmlFragment,
   reverseMarkdownText,
   splitMarkdownIntoChapters,
+  chapterNavTitle,
 } from '../../src/ebook/markdown.ts';
 
 describe('htmlToMarkdown', () => {
@@ -62,5 +63,28 @@ describe('splitMarkdownIntoChapters', () => {
     expect(chapters).toHaveLength(2);
     expect(chapters[0]?.title).toBe('One');
     expect(chapters[1]?.body).toContain('BBB');
+  });
+
+  it('does not invent numbered chapter titles', () => {
+    const md = 'Preface without a heading.\n\n# Real chapter\n\nBody.';
+    const chapters = splitMarkdownIntoChapters(md);
+    expect(chapters).toHaveLength(2);
+    expect(chapters[0]?.title).toBe('');
+    expect(chapters[0]?.body).toContain('Preface');
+    expect(chapters[1]?.title).toBe('Real chapter');
+    expect(chapters.every((c) => !/^Chapter \d+$/.test(c.title))).toBe(true);
+  });
+});
+
+describe('chapterNavTitle', () => {
+  it('uses the heading when present and a snippet otherwise', () => {
+    expect(chapterNavTitle({ title: 'Down the Rabbit-Hole', body: '# Down the Rabbit-Hole\n\nHi' })).toBe(
+      'Down the Rabbit-Hole',
+    );
+    expect(chapterNavTitle({ title: '', body: 'Just a paragraph, no heading.' })).toBe(
+      'Just a paragraph, no heading.',
+    );
+    expect(chapterNavTitle({ title: '', body: 'A'.repeat(80) }).endsWith('…')).toBe(true);
+    expect(chapterNavTitle({ title: '', body: '' })).toBe('');
   });
 });

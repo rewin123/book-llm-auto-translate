@@ -16,6 +16,13 @@ export type JobSettings = {
   concurrency: number;
 };
 
+/** One LLM round-trip for a chunk, stored raw so it can be inspected later. */
+export type LlmCallAttempt = {
+  instructions: string;
+  user: string;
+  response: string;
+};
+
 export type TranslatedPair = {
   index: number;
   original: string;
@@ -26,6 +33,8 @@ export type TranslatedPair = {
   reason?: string;
   /** Wall time of the accepted call, used for the running ETA. */
   ms?: number;
+  /** Every attempt for this chunk (including failed validation retries). */
+  llmCalls?: LlmCallAttempt[];
 };
 
 /**
