@@ -5,8 +5,10 @@ import type { CostEstimate, JobEvent } from '../job/types.ts';
 import { scaleCost } from '../job/cost.ts';
 import { approxUsd, fmt, formatDuration, useT } from '../i18n/index.ts';
 import { markdownToPlainText } from '../ebook/markdown.ts';
-import { ArrowRight } from './icons.tsx';
+import { ArrowRight, ChevronRight } from './icons.tsx';
 import { GlossaryTable } from './GlossaryTable.tsx';
+
+const WIDE_BRIEF = '(min-width: 901px)';
 
 type Props = {
   chunks: Chunk[];
@@ -26,6 +28,11 @@ export function BriefView(props: Props) {
   const { t } = useT();
   const total = props.chunks.length;
   const [limit, setLimit] = useState(total);
+  // Desktop keeps the sample pane open beside the editor; phones start collapsed
+  // so the guidelines stay on screen.
+  const [sampledOpen, setSampledOpen] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(WIDE_BRIEF).matches,
+  );
 
   useEffect(() => {
     setLimit(total);
@@ -55,15 +62,7 @@ export function BriefView(props: Props) {
         {t.briefIntro}
       </p>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: sampled.length > 0 ? '1.45fr 1fr' : 'minmax(0, 1fr)',
-          gap: 'var(--space-4)',
-          alignItems: 'start',
-        }}
-        className="brief-grid"
-      >
+      <div className={`brief-grid${sampled.length > 0 ? ' has-sampled' : ''}`}>
         <div className="card">
           <div
             style={{
@@ -104,41 +103,53 @@ export function BriefView(props: Props) {
           </label>
           <textarea
             id="style-guide"
+            className="brief-guide"
             value={props.guide}
             placeholder={t.styleBriefEmpty}
             onChange={(e) => props.setGuide(e.target.value)}
-            style={{ minHeight: 380 }}
           />
         </div>
 
         {sampled.length > 0 && (
-          <div className="card">
-            <h2>{t.sampledTitle}</h2>
-            <p className="hint" style={{ margin: '3px 0 var(--space-4)' }}>
-              {fmt(t.sampledHint, { n: sampled.length })}
-            </p>
-            <div className="stack" style={{ gap: 'var(--space-3)' }}>
-              {sampled.map(({ index, chunk }) => (
-                <div
-                  key={index}
-                  style={{
-                    border: '1px solid var(--line)',
-                    borderRadius: 'var(--radius-control)',
-                    padding: '11px 13px',
-                    background: 'var(--bg)',
-                  }}
-                >
-                  <div className="hint" style={{ fontSize: 'var(--text-2xs)', marginBottom: 5 }}>
-                    {fmt(t.chunkHeading, { n: index + 1, total: props.chunks.length })} ·{' '}
-                    {chunk.chapterTitle}
+          <details
+            className="disclosure brief-sampled"
+            open={sampledOpen}
+            onToggle={(e) => {
+              const next = e.currentTarget.open;
+              if (next !== sampledOpen) setSampledOpen(next);
+            }}
+          >
+            <summary>
+              <span className="chev">
+                <ChevronRight />
+              </span>
+              <strong>{t.sampledTitle}</strong>
+              <span>{fmt(t.sampledHint, { n: sampled.length })}</span>
+            </summary>
+            <div className="body">
+              <div className="stack" style={{ gap: 'var(--space-3)' }}>
+                {sampled.map(({ index, chunk }) => (
+                  <div
+                    key={index}
+                    style={{
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--radius-control)',
+                      padding: '11px 13px',
+                      background: 'var(--bg)',
+                    }}
+                  >
+                    <div className="hint" style={{ fontSize: 'var(--text-2xs)', marginBottom: 5 }}>
+                      {fmt(t.chunkHeading, { n: index + 1, total: props.chunks.length })} ·{' '}
+                      {chunk.chapterTitle}
+                    </div>
+                    <div className="serif" style={{ fontSize: '0.95rem', lineHeight: 1.55 }}>
+                      {markdownToPlainText(chunk.markdown).slice(0, 150).trim()}…
+                    </div>
                   </div>
-                  <div className="serif" style={{ fontSize: '0.95rem', lineHeight: 1.55 }}>
-                    {markdownToPlainText(chunk.markdown).slice(0, 150).trim()}…
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          </details>
         )}
       </div>
 
