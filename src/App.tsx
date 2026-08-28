@@ -1,0 +1,453 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buildDemoEpub } from './ebook/demoBook.ts';
+import { BookParseError, type ParseErrorCode } from './ebook/index.ts';
+import type { Chunk } from './ebook/types.ts';
+import { I18nContext, catalogs, fmt, useT } from './i18n/index.ts';
+import { clearCheckpoint, loadCheckpoint } from './job/checkpoint.ts';
+import type { Checkpoint, JobSettings } from './job/types.ts';
+import type { GlossaryEntry } from './glossary/index.ts';
+import { CORS_OPENROUTER_FALLBACK, PROVIDER_PRESETS, type StoredProviders } from './llm/presets.ts';
+import type { ConnectionResult } from './llm/testConnection.ts';
+import { loadProviders, saveProviders } from './storage/providers.ts';
+import { loadSetup, saveSetup, type SetupPrefs } from './storage/setup.ts';
+import { detectLocale, detectTheme, persistLocale, persistTheme, type Locale, type Theme } from './storage/prefs.ts';
+import { useJob } from './state/useJob.ts';
+import { AppHeader, Stepper, type Step } from './ui/Shell.tsx';
+import { SetupView } from './ui/SetupView.tsx';
+import { BriefView } from './ui/BriefView.tsx';
+import { RunView } from './ui/RunView.tsx';
+import { DoneView } from './ui/DoneView.tsx';
+import { ResumeBanner } from './ui/ResumeBanner.tsx';
+import { DetailsDrawer } from './ui/DetailsDrawer.tsx';
+import type { BookInfo } from './ui/BookDrop.tsx';
+import { OfflineIcon, PauseIcon } from './ui/icons.tsx';
+
+type PickedFile = File | { name: string; bytes: Uint8Array };
+
+export default function App() {
+  const [locale, setLocale] = useState<Locale>(detectLocale);
+  const [theme, setTheme] = useState<Theme>(detectTheme);
+  const t = catalogs[locale];
+
+  const [stored, setStoredState] = useState<StoredProviders>(loadProviders);
+  const [setup, setSetupState] = useState<SetupPrefs>(loadSetup);
+  const [connection, setConnection] = useState<ConnectionResult | null>(null);
+
+  const { runner, snap, busy, run } = useJob(setup.logLimit);
+
+  const [file, setFile] = useState<PickedFile | null>(null);
+  const [book, setBook] = useState<BookInfo | null>(null);
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState<{ code: ParseErrorCode; fileName: string } | null>(null);
+  const [pending, setPending] = useState<Checkpoint | null>(null);
+  const [guideDraft, setGuideDraft] = useState('');
+  const [glossaryDraft, setGlossaryDraft] = useState<GlossaryEntry[]>([]);
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const [pinned, setPinned] = useState(false);
+  const [online, setOnline] = useState(
+    () => typeof navigator === 'undefined' || navigator.onLine !== false,
+  );
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  const preset = useMemo(
+    () => PROVIDER_PRESETS.find((p) => p.id === stored.activeId) ?? PROVIDER_PRESETS[0]!,
+    [stored.activeId],
+  );
+  const activeModel = stored.models[stored.activeId] ?? preset.defaultModel;
+
+  const settings = useCallback(
+    (): JobSettings => ({
+      sourceLang: setup.sourceLang,
+      targetLang: setup.targetLang,
+      chunkChars: setup.chunkChars,
+      logLimit: setup.logLimit,
+      providerId: stored.activeId,
+      model: activeModel,
+      concurrency: 1,
+    }),
+    [setup, stored.activeId, activeModel],
+  );
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    persistTheme(theme);
+  }, [theme]);
+
+  useEffect(() => {
+    persistLocale(locale);
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  useEffect(() => saveProviders(stored), [stored]);
+  useEffect(() => saveSetup(setup), [setup]);
+
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, []);
+
+  useEffect(() => {
+    void loadCheckpoint().then((cp) => {
+      if (cp && cp.phase !== 'done' && cp.phase !== 'idle') setPending(cp);
+    });
+  }, []);
+
+  // Parse the picked file. The catch is the point: a corrupt or unsupported
+  // file used to fail silently, leaving the button disabled with no reason.
+  useEffect(() => {
+    if (!file) return;
+    let cancelled = false;
+    setParsing(true);
+    setParseError(null);
+    void (async () => {
+      try {
+        await runner.prepare(file, settings(), stored);
+        if (cancelled || !runner.book) return;
+        setBook({
+          fileName: runner.book.fileName,
+          title: runner.book.title,
+          format: runner.book.format,
+          chapters: countChapters(runner.book.chunks),
+          chunks: runner.book.chunks.length,
+          bytes: file instanceof File ? file.size : file.bytes.length,
+        });
+        setPreviewIndex(0);
+        setPinned(false);
+      } catch (err) {
+        if (cancelled) return;
+        setBook(null);
+        setParseError(
+          err instanceof BookParseError
+            ? { code: err.code, fileName: err.fileName }
+            : { code: 'corrupt', fileName: file.name },
+        );
+      } finally {
+        if (!cancelled) setParsing(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Re-parses only for a new file or a new split size, not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file, setup.chunkChars]);
+
+  // Keeps the estimate honest when the provider or model changes under it.
+  useEffect(() => {
+    void runner.refreshCost(stored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stored.activeId, activeModel]);
+
+  useEffect(() => {
+    if (snap.styleGuide && !guideDraft) setGuideDraft(snap.styleGuide);
+  }, [snap.styleGuide, guideDraft]);
+
+  useEffect(() => {
+    if (snap.glossary.length > 0 && glossaryDraft.length === 0) setGlossaryDraft(snap.glossary);
+  }, [snap.glossary, glossaryDraft.length]);
+
+  const running = snap.phase === 'translate' || snap.phase === 'style';
+
+  useEffect(() => {
+    if (!pinned && running && snap.index > 0) {
+      setPreviewIndex(Math.min(snap.index - 1, Math.max(snap.chunks.length - 1, 0)));
+    }
+  }, [pinned, running, snap.index, snap.chunks.length]);
+
+  const step: Step =
+    snap.phase === 'idle' ? 'setup' : snap.phase === 'style' || snap.phase === 'review' ? 'brief' : 'run';
+
+  const trialChunks = useMemo(() => firstChapterLength(snap.chunks), [snap.chunks]);
+
+  const onIndexChange = (i: number, pin: boolean) => {
+    setPreviewIndex(i);
+    setPinned(pin);
+  };
+
+  const startStyle = () => void run(async () => { await runner.runStyle(); });
+
+  const translate = (limit?: number) =>
+    void run(async () => {
+      runner.approveStyle(guideDraft || runner.styleGuide, glossaryDraft);
+      await runner.runTranslate({ limit, glossarySnapshot: glossaryDraft });
+    });
+
+  const resumeJob = () =>
+    void run(async () => {
+      if (!runner.styleGuide) await runner.runStyle();
+      else await runner.runTranslate();
+    });
+
+  const download = async () => {
+    const packed = snap.packed ?? (await runner.pack());
+    if (!packed) return;
+    const blob = new Blob([packed.bytes as BlobPart], { type: packed.mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = packed.fileName;
+    a.click();
+    // The old code leaked every object URL it created.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  };
+
+  const exportBrief = () => {
+    const payload = JSON.stringify(
+      { styleGuide: guideDraft || snap.styleGuide, glossary: glossaryDraft },
+      null,
+      2,
+    );
+    const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'style-brief.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  };
+
+  const startOver = () => {
+    if (snap.total > 0 && !confirm(t.startOverConfirm)) return;
+    runner.reset();
+    void clearCheckpoint();
+    setFile(null);
+    setBook(null);
+    setParseError(null);
+    setGuideDraft('');
+    setGlossaryDraft([]);
+    setPreviewIndex(0);
+    setPinned(false);
+  };
+
+  const fixSettings = (target: 'model' | 'advanced' | 'cors') => {
+    if (target === 'cors') {
+      const fallback =
+        CORS_OPENROUTER_FALLBACK[stored.activeId] ?? 'nvidia/nemotron-3-nano-30b-a3b:free';
+      setStoredState((s) => ({
+        ...s,
+        activeId: 'openrouter',
+        models: { ...s.models, openrouter: fallback },
+      }));
+      setConnection(null);
+    }
+    runner.reset();
+    setPending(null);
+    requestAnimationFrame(() => {
+      settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (target === 'advanced') {
+        settingsRef.current?.querySelector('details')?.setAttribute('open', 'true');
+      }
+    });
+  };
+
+  const banners = (
+    <>
+      {!online && (
+        <div className="card banner banner-danger" role="status">
+          <span className="banner-icon error">
+            <OfflineIcon />
+          </span>
+          <div>
+            <strong>{t.offlineTitle}</strong>
+            <p>{t.offlineHint}</p>
+          </div>
+        </div>
+      )}
+      {pending && snap.phase === 'idle' && (
+        <ResumeBanner
+          checkpoint={pending}
+          busy={busy}
+          onResume={() => {
+            const cp = pending;
+            setPending(null);
+            setSetupState((s) => ({
+              ...s,
+              sourceLang: cp.settings.sourceLang,
+              targetLang: cp.settings.targetLang,
+            }));
+            setGuideDraft(cp.styleGuide);
+            setGlossaryDraft(cp.glossary);
+            setBook({
+              fileName: cp.fileName,
+              title: cp.title,
+              format: cp.format,
+              chapters: countChapters(cp.chunks),
+              chunks: cp.chunks.length,
+              bytes: cp.fileBytes.length,
+            });
+            runner.restore(cp, stored);
+            if (cp.phase !== 'review' && cp.phase !== 'style') resumeJob();
+          }}
+          onDiscard={() => {
+            void clearCheckpoint();
+            setPending(null);
+          }}
+        />
+      )}
+    </>
+  );
+
+  const wide = step === 'run' && snap.phase !== 'done';
+
+  return (
+    <I18nContext.Provider value={{ locale, t, setLocale }}>
+      <div className={wide ? 'shell shell-wide' : 'shell'}>
+        {!wide && (
+          <>
+            <AppHeader
+              locale={locale}
+              setLocale={setLocale}
+              theme={theme}
+              setTheme={setTheme}
+              compact={step !== 'setup'}
+            />
+            <Stepper current={step} />
+          </>
+        )}
+
+        {!wide && <div className="stack">{banners}</div>}
+
+        {snap.phase === 'idle' && (
+          <div ref={settingsRef} style={{ marginTop: 'var(--space-4)' }}>
+            <SetupView
+              book={book}
+              parsing={parsing}
+              parseError={parseError}
+              setup={setup}
+              setSetup={(fn) => setSetupState(fn)}
+              stored={stored}
+              setStored={(fn) => setStoredState(fn)}
+              connection={connection}
+              setConnection={setConnection}
+              translatedCount={snap.translated.length}
+              onFile={(f) => setFile(f)}
+              onDemo={() => {
+                void buildDemoEpub().then((bytes) => {
+                  setStoredState((s) => ({ ...s, activeId: 'mock' }));
+                  setConnection(null);
+                  setFile({ name: 'alice-excerpt.epub', bytes });
+                });
+              }}
+              onClearError={() => setParseError(null)}
+              onContinue={startStyle}
+            />
+          </div>
+        )}
+
+        {snap.phase === 'style' && <StyleLoading onPause={() => runner.pause()} events={snap.events} />}
+
+        {snap.phase === 'review' && (
+          <BriefView
+            chunks={snap.chunks}
+            events={snap.events}
+            guide={guideDraft}
+            setGuide={setGuideDraft}
+            defaultGuide={snap.styleGuide}
+            glossary={glossaryDraft}
+            setGlossary={setGlossaryDraft}
+            cost={snap.cost}
+            busy={busy}
+            firstChapterChunks={trialChunks}
+            onTranslate={(n) => translate(n >= snap.chunks.length ? undefined : n)}
+          />
+        )}
+
+        {wide && (
+          <RunView
+            snap={snap}
+            sourceLang={setup.sourceLang}
+            targetLang={setup.targetLang}
+            providerLabel={`${preset.label} · ${activeModel}`}
+            busy={busy}
+            index={previewIndex}
+            pinned={pinned}
+            failure={snap.failure}
+            onIndexChange={onIndexChange}
+            onPause={() => runner.pause()}
+            onStop={() => runner.stop()}
+            onResume={resumeJob}
+            onRetryKept={() => void run(async () => { await runner.retryKeptOriginal(); })}
+            onContinueTrial={() => void run(async () => { await runner.runTranslate(); })}
+            onDownloadPartial={() => void download()}
+            onFixSettings={fixSettings}
+          />
+        )}
+
+        {snap.phase === 'done' && (
+          <DoneView
+            snap={snap}
+            sourceLang={setup.sourceLang}
+            targetLang={setup.targetLang}
+            busy={busy}
+            index={previewIndex}
+            onIndexChange={onIndexChange}
+            onDownload={() => void download()}
+            onRetryKept={() => void run(async () => { await runner.retryKeptOriginal(); })}
+            onStartOver={startOver}
+            onExportBrief={exportBrief}
+          />
+        )}
+      </div>
+    </I18nContext.Provider>
+  );
+}
+
+function StyleLoading({ events, onPause }: { events: JobEventList; onPause: () => void }) {
+  const { t } = useT();
+  return (
+    <div className="stack">
+      <div className="card" aria-busy="true">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+          <span className="spinner" />
+          <div style={{ flexGrow: 1 }}>
+            <strong>{t.statusStyle}</strong>
+            <p className="hint" style={{ margin: '4px 0 0' }}>
+              {fmt(t.sampledHint, { n: countReads(events) })}
+            </p>
+          </div>
+          <button className="btn btn-sm" type="button" onClick={onPause}>
+            <PauseIcon />
+            {t.pause}
+          </button>
+        </div>
+      </div>
+      <DetailsDrawer events={events} />
+    </div>
+  );
+}
+
+type JobEventList = Parameters<typeof DetailsDrawer>[0]['events'];
+
+function countReads(events: JobEventList): number {
+  return events.filter((e) => e.key === 'readChunk').length;
+}
+
+function countChapters(chunks: Chunk[]): number {
+  let n = 0;
+  let last = '';
+  for (const c of chunks) {
+    const key = `${c.documentPath}::${c.chapterTitle}`;
+    if (key !== last) {
+      n += 1;
+      last = key;
+    }
+  }
+  return n;
+}
+
+/** Trial runs stop at the end of the first chapter. */
+function firstChapterLength(chunks: Chunk[]): number {
+  if (chunks.length === 0) return 0;
+  const first = `${chunks[0]!.documentPath}::${chunks[0]!.chapterTitle}`;
+  let n = 0;
+  for (const c of chunks) {
+    if (`${c.documentPath}::${c.chapterTitle}` !== first) break;
+    n += 1;
+  }
+  return n;
+}
