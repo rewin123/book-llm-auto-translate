@@ -9,13 +9,10 @@ export function mergeGlossary(
     const src = u.src.trim();
     const dst = u.dst.trim();
     if (!src || !dst || src === dst) continue;
+    if (map.has(src)) continue;
     map.set(src, dst);
   }
   return [...map.entries()].map(([src, dst]) => ({ src, dst }));
-}
-
-export function glossaryForChunk(glossary: GlossaryEntry[], markdown: string): GlossaryEntry[] {
-  return glossary.filter((e) => e.src && markdown.includes(e.src));
 }
 
 export function parseGlossaryLines(text: string): GlossaryEntry[] {

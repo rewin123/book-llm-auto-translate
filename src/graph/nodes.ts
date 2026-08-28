@@ -1,6 +1,6 @@
 import { validateTranslation } from '../ebook/validate.ts';
 import type { Chunk } from '../ebook/types.ts';
-import { glossaryForChunk, mergeGlossary, type GlossaryEntry } from '../glossary/index.ts';
+import { mergeGlossary, type GlossaryEntry } from '../glossary/index.ts';
 import { parseTranslateOutput, type LlmClient } from '../llm/client.ts';
 import { translateSystemPrompt, translateUserPrompt } from '../llm/prompts.ts';
 import { outputTokenBudget } from '../llm/openai.ts';
@@ -35,7 +35,7 @@ export async function translateChunkNode(opts: {
     });
     const user = translateUserPrompt({
       markdown: opts.chunk.markdown,
-      glossary: glossaryForChunk(opts.glossary, opts.chunk.markdown),
+      glossary: opts.glossary,
       lastTwo: opts.lastTwo,
     });
     const { text } = await opts.client.complete({

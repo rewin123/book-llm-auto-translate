@@ -3,6 +3,7 @@ import { fmt, formatDuration, approxUsd, shortLanguageName, useT } from '../i18n
 import { CheckIcon, DownloadIcon, WarnIcon } from './icons.tsx';
 import { CompareView } from './CompareView.tsx';
 import { DetailsDrawer } from './DetailsDrawer.tsx';
+import { GlossaryTable } from './GlossaryTable.tsx';
 
 type Props = {
   snap: JobSnapshot;
@@ -159,6 +160,8 @@ export function DoneView(props: Props) {
           </button>
         </div>
       </div>
+
+      <GlossaryTable entries={snap.glossary} readOnly />
 
       <div className="card">
         <CompareView

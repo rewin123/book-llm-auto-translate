@@ -159,7 +159,10 @@ export class JobRunner {
     this.settings = settings;
     this.stored = stored;
     this.concurrency = settings.concurrency;
-    this.book = await parseBook(file, settings.chunkChars);
+    this.book = await parseBook(file, settings.chunkChars, {
+      sourceLang: settings.sourceLang,
+      targetLang: settings.targetLang,
+    });
     this.glossary = [];
     this.translated = [];
     this.styleGuide = '';
@@ -299,6 +302,7 @@ export class JobRunner {
       while (this.index < limit) {
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
         const chunk = this.book.chunks[this.index]!;
+        const originalMarkdown = chunk.markdown;
         const lastTwo = this.translated.slice(-2);
         this.log('info', 'translating', {
           n: this.index + 1,
@@ -308,7 +312,7 @@ export class JobRunner {
         const started = Date.now();
         const result = await translateChunkNode({
           client,
-          chunk,
+          chunk: { ...chunk, markdown: originalMarkdown },
           sourceLang: this.settings.sourceLang,
           targetLang: this.settings.targetLang,
           styleGuide: this.styleGuide,
@@ -321,7 +325,7 @@ export class JobRunner {
         this.glossary = mergeAfterChunk(this.glossary, result.glossary);
         this.translated.push({
           index: this.index,
-          original: chunk.markdown,
+          original: originalMarkdown,
           translation: result.markdown,
           usedOriginal: result.usedOriginal,
           reason: result.reason,
@@ -373,11 +377,12 @@ export class JobRunner {
       for (const idx of targets) {
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
         const chunk = this.book.chunks[idx]!;
+        const originalMarkdown = chunk.markdown;
         this.log('info', 'retryingChunk', { n: idx + 1, chapter: chunk.chapterTitle });
         const started = Date.now();
         const result = await translateChunkNode({
           client,
-          chunk,
+          chunk: { ...chunk, markdown: originalMarkdown },
           sourceLang: this.settings.sourceLang,
           targetLang: this.settings.targetLang,
           styleGuide: this.styleGuide,
@@ -392,7 +397,7 @@ export class JobRunner {
         if (at >= 0) {
           this.translated[at] = {
             index: idx,
-            original: chunk.markdown,
+            original: originalMarkdown,
             translation: result.markdown,
             usedOriginal: result.usedOriginal,
             reason: result.reason,

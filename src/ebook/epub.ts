@@ -9,7 +9,7 @@ import {
   splitMarkdownIntoChapters,
 } from './markdown.ts';
 import { findAll, findEl, parseXml, textContent } from './xml.ts';
-import type { BookImage, PackedBook, ParsedBook } from './types.ts';
+import type { BookImage, PackedBook, ParsedBook, TranslateLangs } from './types.ts';
 
 const MIME = 'application/epub+zip';
 const CSS = `body { font-family: Georgia, "Times New Roman", serif; line-height: 1.55; margin: 1.25em; }
@@ -64,6 +64,7 @@ export async function parseEpub(
   bytes: Uint8Array,
   fileName: string,
   maxChunkChars: number,
+  langs?: TranslateLangs,
 ): Promise<ParsedBook> {
   const zip = await JSZip.loadAsync(bytes);
   const containerXml = await readText(zip, 'META-INF/container.xml');
@@ -118,6 +119,7 @@ export async function parseEpub(
     const mdOpts = {
       images,
       resolveHref: (href: string) => zipPath(path, href),
+      dropAlreadyTranslated: langs,
     };
     const markdown = htmlToMarkdown(body, mdOpts);
     if (!markdown.trim()) continue;

@@ -26,6 +26,30 @@ describe('htmlToMarkdown', () => {
     expect(md).toContain('![A tiny cover](images/cover.png)');
     expect(collectImageSrcs(md)).toEqual(['images/cover.png']);
   });
+
+  it('drops already-translated paragraphs so the source side stays English', () => {
+    const doc = parseXml(`<body xmlns="http://www.w3.org/1999/xhtml">
+      <p>Alice was beginning to get very tired of sitting by her sister.</p>
+      <p>Алиса начинала чувствовать себя очень усталой от сидения рядом с сестрой.</p>
+      <p lang="ru">Ещё один полностью русский абзац для проверки атрибута.</p>
+    </body>`);
+    const md = htmlToMarkdown(doc.documentElement, {
+      dropAlreadyTranslated: { sourceLang: 'en', targetLang: 'ru' },
+    });
+    expect(md).toContain('Alice was beginning');
+    expect(md).not.toContain('Алиса');
+    expect(md).not.toContain('Ещё один');
+  });
+
+  it('keeps a Russian-only book when source and target would drop everything', () => {
+    const doc = parseXml(`<body xmlns="http://www.w3.org/1999/xhtml">
+      <p>Полностью русский текст без единого английского предложения.</p>
+    </body>`);
+    const md = htmlToMarkdown(doc.documentElement, {
+      dropAlreadyTranslated: { sourceLang: 'en', targetLang: 'ru' },
+    });
+    expect(md).toContain('Полностью русский текст');
+  });
 });
 
 describe('markdownToXhtmlFragment', () => {

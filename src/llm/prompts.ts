@@ -16,6 +16,7 @@ HARD RULES:
 - Preserve link targets and image paths exactly. Translate the visible text / alt, never the URL or path inside (...).
 - Do not add, remove, or convert markdown into HTML/XML tags.
 - Output markdown only — no preamble.
+- The SOURCE block is the original. Write only the ${opts.targetLang} translation. Do not copy the source language into the output, and do not repeat previous chunks.
 
 Return EXACTLY this format:
 <<<TRANSLATION>>>
@@ -43,7 +44,7 @@ export function translateUserPrompt(opts: {
         `<prev${i + 1}><original>\n${c.original}\n</original><translate>\n${c.translation}\n</translate></prev${i + 1}>`,
     )
     .join('\n');
-  return `GLOSSARY (use these exact forms when the source word appears):
+  return `GLOSSARY (complete list — use these exact forms when the source word appears):
 ${glossary}
 
 PREVIOUS TWO CHUNKS:

@@ -1,3 +1,4 @@
+import { isAlreadyTargetLanguage, shouldSkipTranslatedElement } from './lang.ts';
 import { localName } from './xml.ts';
 import type { ImageBag } from './images.ts';
 
@@ -5,6 +6,8 @@ export type MdOpts = {
   /** Resolve a relative image/link href against the source document. */
   resolveHref?: (href: string) => string;
   images?: ImageBag;
+  /** Drop blocks already in the target language (bilingual source books). */
+  dropAlreadyTranslated?: { sourceLang: string; targetLang: string };
 };
 
 const BLOCK_NAMES = new Set([
@@ -39,7 +42,22 @@ const BLOCK_NAMES = new Set([
 ]);
 
 export function htmlToMarkdown(root: Element, opts?: MdOpts): string {
-  return collapseBlankLines(blockChildren(root, opts)).trim() + (root.childNodes.length ? '\n' : '');
+  const md = collapseBlankLines(blockChildren(root, opts)).trim() + (root.childNodes.length ? '\n' : '');
+  // If every paragraph was already in the target language, keep the source
+  // rather than producing an empty book (wrong language pair, or RU→RU).
+  if (opts?.dropAlreadyTranslated && !md.trim()) {
+    const { dropAlreadyTranslated: _dropped, ...rest } = opts;
+    return htmlToMarkdown(root, rest);
+  }
+  return md;
+}
+
+function skipTranslated(el: Element, opts?: MdOpts): boolean {
+  const drop = opts?.dropAlreadyTranslated;
+  if (!drop) return false;
+  if (shouldSkipTranslatedElement(el, drop.sourceLang, drop.targetLang)) return true;
+  if (hasBlockChild(el)) return false;
+  return isAlreadyTargetLanguage(el.textContent ?? '', drop.sourceLang, drop.targetLang);
 }
 
 function collapseBlankLines(md: string): string {
@@ -65,6 +83,7 @@ function nodeToBlock(node: Node, opts?: MdOpts): string {
   }
   if (node.nodeType !== Node.ELEMENT_NODE) return '';
   const el = node as Element;
+  if (skipTranslated(el, opts)) return '';
   const name = localName(el);
   switch (name) {
     case 'h1':
@@ -180,6 +199,9 @@ function nodeToInline(node: Node, opts?: MdOpts): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
   if (node.nodeType !== Node.ELEMENT_NODE) return '';
   const el = node as Element;
+  if (opts?.dropAlreadyTranslated && shouldSkipTranslatedElement(el, opts.dropAlreadyTranslated.sourceLang, opts.dropAlreadyTranslated.targetLang)) {
+    return '';
+  }
   const name = localName(el);
   if (name === 'em' || name === 'i' || name === 'emphasis') return `*${inlineChildren(el, opts)}*`;
   if (name === 'strong' || name === 'b') return `**${inlineChildren(el, opts)}**`;

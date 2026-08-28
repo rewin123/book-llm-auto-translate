@@ -7,6 +7,7 @@ import { ChapterRail } from './ChapterRail.tsx';
 import { CompareView } from './CompareView.tsx';
 import { DetailsDrawer, LiveStatus, eventText } from './DetailsDrawer.tsx';
 import { FailureBanner } from './FailureBanner.tsx';
+import { GlossaryTable } from './GlossaryTable.tsx';
 
 type Props = {
   snap: JobSnapshot;
@@ -184,6 +185,8 @@ export function RunView(props: Props) {
             pinned={props.pinned}
             onIndexChange={props.onIndexChange}
           />
+
+          <GlossaryTable entries={snap.glossary} readOnly />
 
           {snap.keptOriginal > 0 && (
             <div

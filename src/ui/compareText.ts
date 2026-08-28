@@ -1,0 +1,18 @@
+/**
+ * Markdown for the two compare panes. Always prefer the pair snapshot so a
+ * later write to `chunk.markdown` cannot turn the original pane into the
+ * translation (English vs English becoming Russian vs Russian).
+ */
+export function comparePaneMarkdown(
+  chunk: { markdown: string },
+  pair: { original: string; translation: string } | undefined,
+): { original: string; translation: string; ready: boolean } {
+  if (!pair) {
+    return { original: chunk.markdown, translation: chunk.markdown, ready: false };
+  }
+  return {
+    original: pair.original || chunk.markdown,
+    translation: pair.translation,
+    ready: true,
+  };
+}

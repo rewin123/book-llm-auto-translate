@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Chunk } from '../ebook/types.ts';
 import type { LlmCallAttempt, TranslatedPair } from '../job/types.ts';
 import { fmt, shortLanguageName, useT } from '../i18n/index.ts';
+import { comparePaneMarkdown } from './compareText.ts';
 import { markupToSafeHtml } from './sanitize.ts';
 import { CheckIcon, ChevronLeft, ChevronRight, InfoIcon, WarnIcon } from './icons.tsx';
 
@@ -33,6 +34,7 @@ export function CompareView(props: Props) {
   const idx = Math.min(Math.max(props.index, 0), max);
   const chunk = props.chunks[idx];
   const pair = props.translated.find((p) => p.index === idx);
+  const panes = chunk ? comparePaneMarkdown(chunk, pair) : null;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -49,11 +51,11 @@ export function CompareView(props: Props) {
     scrollRef.current?.scrollTo({ top: 0 });
   }, [idx]);
 
-  if (!chunk) return null;
+  if (!chunk || !panes) return null;
 
   const showOriginal = mode !== 'translation';
   const showTranslation = mode !== 'original';
-  const ready = Boolean(pair);
+  const ready = panes.ready;
   const kept = pair?.usedOriginal === true;
 
   return (
@@ -136,18 +138,18 @@ export function CompareView(props: Props) {
         ref={scrollRef}
       >
         {showOriginal && (
-          <section>
+          <section key={`orig-${idx}`}>
             <div className="pane-cap">
               <span>{fmt(t.original, { lang: shortLanguageName(props.sourceLang, locale) })}</span>
             </div>
             <article
               className="page"
-              dangerouslySetInnerHTML={{ __html: markupToSafeHtml(chunk.markdown) }}
+              dangerouslySetInnerHTML={{ __html: markupToSafeHtml(panes.original) }}
             />
           </section>
         )}
         {showTranslation && (
-          <section>
+          <section key={`tr-${idx}`}>
             <div className="pane-cap">
               <span>{fmt(t.translation, { lang: shortLanguageName(props.targetLang, locale) })}</span>
               {ready && !kept && (
@@ -158,9 +160,10 @@ export function CompareView(props: Props) {
               )}
             </div>
             <article
+              key={`tr-html-${idx}-${ready ? 'ready' : 'pending'}`}
               className={`page ${ready ? '' : 'is-pending'}`}
               dangerouslySetInnerHTML={{
-                __html: markupToSafeHtml(pair?.translation ?? chunk.markdown),
+                __html: markupToSafeHtml(panes.translation),
               }}
             />
           </section>

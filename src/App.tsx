@@ -134,9 +134,11 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-    // Re-parses only for a new file or a new split size, not on every keystroke.
+    // Re-parses for a new file, split size, or language pair — not on every
+    // keystroke. Languages matter because bilingual books drop target-language
+    // paragraphs so the original pane stays in the source language.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file, setup.chunkChars]);
+  }, [file, setup.chunkChars, setup.sourceLang, setup.targetLang]);
 
   // Keeps the estimate honest when the provider or model changes under it.
   useEffect(() => {
@@ -149,8 +151,10 @@ export default function App() {
   }, [snap.styleGuide, guideDraft]);
 
   useEffect(() => {
-    if (snap.glossary.length > 0 && glossaryDraft.length === 0) setGlossaryDraft(snap.glossary);
-  }, [snap.glossary, glossaryDraft.length]);
+    if (snap.phase === 'translate' || snap.phase === 'paused' || snap.phase === 'done' || snap.phase === 'error') {
+      setGlossaryDraft(snap.glossary);
+    }
+  }, [snap.glossary, snap.phase]);
 
   const running = snap.phase === 'translate' || snap.phase === 'style';
 
@@ -199,7 +203,7 @@ export default function App() {
 
   const exportBrief = () => {
     const payload = JSON.stringify(
-      { styleGuide: guideDraft || snap.styleGuide, glossary: glossaryDraft },
+      { styleGuide: guideDraft || snap.styleGuide, glossary: snap.glossary.length > 0 ? snap.glossary : glossaryDraft },
       null,
       2,
     );

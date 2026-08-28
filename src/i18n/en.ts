@@ -84,7 +84,7 @@ export const en = {
   edited: 'edited',
   glossary: 'Glossary',
   glossaryHint:
-    'Names held steady across every chapter. The model adds to this as it goes; your rows are never overwritten.',
+    'Names held steady across every chapter. The model adds to this as it goes; your rows are never overwritten. The complete list is sent with every chunk.',
   glossaryAdd: 'Add',
   glossaryPaste: 'Paste a list',
   glossaryPasteHint: 'One pair per line, for example: Alice -> Алиса',
@@ -104,7 +104,7 @@ export const en = {
   unitMin: '{n} min',
   unitHour: '{n} h {m} min',
   costNote:
-    'An estimate, not a bill, for the {n} chunks you selected. Every call carries the style guidelines, the matching glossary rows and the previous two chunks. Priced for {model}.',
+    'An estimate, not a bill, for the {n} chunks you selected. Every call carries the style guidelines, the full glossary and the previous two chunks. Priced for {model}.',
   chunkLimit: 'Chunks to translate',
   chunkLimitOf: 'of {total}',
   chunkLimitHint: 'You can stop early and continue the rest later. Untranslated chunks stay in the source language.',

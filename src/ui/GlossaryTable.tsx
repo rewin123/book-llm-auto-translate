@@ -5,20 +5,23 @@ import { PlusIcon, TrashIcon } from './icons.tsx';
 
 type Props = {
   entries: GlossaryEntry[];
-  onChange: (next: GlossaryEntry[]) => void;
+  onChange?: (next: GlossaryEntry[]) => void;
+  /** When set, every row is listed but cannot be edited (live translation). */
+  readOnly?: boolean;
 };
 
 /**
- * The glossary was already built, filtered per chunk and pushed into every
- * prompt — it just had nowhere to be seen or corrected. This is that surface.
+ * The glossary is built by the model and must stay complete: every row is
+ * listed here, and every translate call receives the same full list.
  */
-export function GlossaryTable({ entries, onChange }: Props) {
+export function GlossaryTable({ entries, onChange, readOnly = false }: Props) {
   const { t } = useT();
   const [pasting, setPasting] = useState(false);
   const [draft, setDraft] = useState('');
+  const canEdit = Boolean(onChange) && !readOnly;
 
   const update = (i: number, patch: Partial<GlossaryEntry>) => {
-    onChange(entries.map((e, n) => (n === i ? { ...e, ...patch } : e)));
+    onChange?.(entries.map((e, n) => (n === i ? { ...e, ...patch } : e)));
   };
 
   return (
@@ -43,22 +46,24 @@ export function GlossaryTable({ entries, onChange }: Props) {
             {t.glossaryHint}
           </p>
         </div>
-        <div className="actions">
-          <button className="btn btn-sm" type="button" onClick={() => setPasting((v) => !v)}>
-            {t.glossaryPaste}
-          </button>
-          <button
-            className="btn btn-sm"
-            type="button"
-            onClick={() => onChange([...entries, { src: '', dst: '' }])}
-          >
-            <PlusIcon size={13} />
-            {t.glossaryAdd}
-          </button>
-        </div>
+        {canEdit && (
+          <div className="actions">
+            <button className="btn btn-sm" type="button" onClick={() => setPasting((v) => !v)}>
+              {t.glossaryPaste}
+            </button>
+            <button
+              className="btn btn-sm"
+              type="button"
+              onClick={() => onChange?.([...entries, { src: '', dst: '' }])}
+            >
+              <PlusIcon size={13} />
+              {t.glossaryAdd}
+            </button>
+          </div>
+        )}
       </div>
 
-      {pasting && (
+      {canEdit && pasting && (
         <div style={{ marginTop: 'var(--space-4)' }}>
           <label htmlFor="glossary-paste">{t.glossaryPasteHint}</label>
           <textarea
@@ -75,7 +80,7 @@ export function GlossaryTable({ entries, onChange }: Props) {
                 const parsed = parseGlossaryLines(draft);
                 const seen = new Map(entries.map((e) => [e.src, e]));
                 for (const entry of parsed) seen.set(entry.src, entry);
-                onChange([...seen.values()]);
+                onChange?.([...seen.values()]);
                 setDraft('');
                 setPasting(false);
               }}
@@ -94,22 +99,25 @@ export function GlossaryTable({ entries, onChange }: Props) {
           {t.glossaryEmpty}
         </p>
       ) : (
-        <div className="glossary" style={{ marginTop: 'var(--space-4)' }}>
-          <div className="head">{t.glossarySrc}</div>
-          <div className="head">{t.glossaryDst}</div>
-          <div className="head" aria-hidden="true" />
-          {entries.map((entry, i) => (
-            <Row
-              key={i}
-              entry={entry}
-              index={i}
-              onPatch={(patch) => update(i, patch)}
-              onRemove={() => onChange(entries.filter((_, n) => n !== i))}
-              removeLabel={t.glossaryRemove}
-              srcLabel={t.glossarySrc}
-              dstLabel={t.glossaryDst}
-            />
-          ))}
+        <div className="glossary-scroll" style={{ marginTop: 'var(--space-4)' }}>
+          <div className={`glossary${canEdit ? '' : ' is-readonly'}`}>
+            <div className="head">{t.glossarySrc}</div>
+            <div className="head">{t.glossaryDst}</div>
+            {canEdit && <div className="head" aria-hidden="true" />}
+            {entries.map((entry, i) => (
+              <Row
+                key={`${entry.src}-${i}`}
+                entry={entry}
+                index={i}
+                readOnly={!canEdit}
+                onPatch={(patch) => update(i, patch)}
+                onRemove={() => onChange?.(entries.filter((_, n) => n !== i))}
+                removeLabel={t.glossaryRemove}
+                srcLabel={t.glossarySrc}
+                dstLabel={t.glossaryDst}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -119,6 +127,7 @@ export function GlossaryTable({ entries, onChange }: Props) {
 function Row(props: {
   entry: GlossaryEntry;
   index: number;
+  readOnly: boolean;
   onPatch: (patch: Partial<GlossaryEntry>) => void;
   onRemove: () => void;
   removeLabel: string;
@@ -130,6 +139,7 @@ function Row(props: {
       <div>
         <input
           value={props.entry.src}
+          readOnly={props.readOnly}
           aria-label={`${props.srcLabel} ${props.index + 1}`}
           onChange={(e) => props.onPatch({ src: e.target.value })}
         />
@@ -137,21 +147,24 @@ function Row(props: {
       <div>
         <input
           value={props.entry.dst}
+          readOnly={props.readOnly}
           aria-label={`${props.dstLabel} ${props.index + 1}`}
           onChange={(e) => props.onPatch({ dst: e.target.value })}
         />
       </div>
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          title={props.removeLabel}
-          aria-label={`${props.removeLabel} ${props.index + 1}`}
-          onClick={props.onRemove}
-        >
-          <TrashIcon />
-        </button>
-      </div>
+      {!props.readOnly && (
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            title={props.removeLabel}
+            aria-label={`${props.removeLabel} ${props.index + 1}`}
+            onClick={props.onRemove}
+          >
+            <TrashIcon />
+          </button>
+        </div>
+      )}
     </>
   );
 }

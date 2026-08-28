@@ -3,7 +3,7 @@ import { ImageBag, mimeFromPath } from './images.ts';
 import { htmlToMarkdown } from './markdown.ts';
 import { decodeXmlBytes } from './encoding.ts';
 import { findAll, findEl, localName, parseXml, textContent } from './xml.ts';
-import type { BookImage, ParsedBook } from './types.ts';
+import type { BookImage, ParsedBook, TranslateLangs } from './types.ts';
 
 function sectionTitle(section: Element, fallback: string): string {
   const title = Array.from(section.childNodes).find(
@@ -41,6 +41,7 @@ export function parseFb2Xml(
   fileName: string,
   maxChunkChars: number,
   sourceBytes: Uint8Array,
+  langs?: TranslateLangs,
 ): ParsedBook {
   const doc = parseXml(xml);
   const root = doc.documentElement;
@@ -63,7 +64,7 @@ export function parseFb2Xml(
       pieces.push({
         documentPath: `body:${name || n}`,
         chapterTitle: bookTitle,
-        markdown: htmlToMarkdown(body, { images }),
+        markdown: htmlToMarkdown(body, { images, dropAlreadyTranslated: langs }),
       });
       continue;
     }
@@ -73,7 +74,7 @@ export function parseFb2Xml(
       pieces.push({
         documentPath: path,
         chapterTitle: sectionTitle(section, ''),
-        markdown: htmlToMarkdown(section, { images }),
+        markdown: htmlToMarkdown(section, { images, dropAlreadyTranslated: langs }),
       });
     });
   }
@@ -92,7 +93,8 @@ export function parseFb2(
   bytes: Uint8Array,
   fileName: string,
   maxChunkChars: number,
+  langs?: TranslateLangs,
 ): ParsedBook {
   const xml = decodeXmlBytes(bytes);
-  return parseFb2Xml(xml, fileName, maxChunkChars, bytes);
+  return parseFb2Xml(xml, fileName, maxChunkChars, bytes, langs);
 }

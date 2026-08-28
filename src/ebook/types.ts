@@ -1,5 +1,10 @@
 export type BookFormat = 'epub' | 'fb2';
 
+export type TranslateLangs = {
+  sourceLang: string;
+  targetLang: string;
+};
+
 export type Chunk = {
   index: number;
   documentPath: string;

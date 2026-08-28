@@ -53,14 +53,26 @@ const CONTEXT_RE =
 const NETWORK_RE =
   /network request failed|err_connection|econnreset|etimedout|enotfound|socket|fetch failed|connection (?:reset|closed|refused|aborted)|net::/i;
 const FETCH_RE = /failed to fetch|networkerror|load failed/i;
+const CUT_OFF_RE = /empty model response|invalid json/i;
+
+/**
+ * Reconnects after a drop, not counting the first try. A browser CORS rejection
+ * looks like `Failed to fetch` too, so this is a ceiling rather than infinity:
+ * a real outage usually comes back within these retries; a blocked origin will
+ * fail out after the same budget.
+ */
+export const CONNECTION_RETRIES = 10;
+
+function connectionAttempts(): number {
+  return 1 + CONNECTION_RETRIES;
+}
 
 /**
  * Classifies a failure and says how hard to try again.
  *
- * The important cases: a browser CORS rejection looks exactly like a network
- * blip (`TypeError: Failed to fetch`) but retrying it forever is pointless, so
- * it gets a low ceiling. Only a genuinely offline browser retries without a cap,
- * because there the connection really is expected to come back.
+ * Only a genuinely offline browser retries without a cap, because there the
+ * connection really is expected to come back. Timeouts, `Failed to fetch`,
+ * resets and empty/cut-off bodies share the same reconnect budget.
  */
 export function classifyFailure(err: unknown): {
   kind: FailureKind;
@@ -70,15 +82,16 @@ export function classifyFailure(err: unknown): {
 } {
   const status = errorStatus(err);
   const msg = messageOf(err);
+  const reconnect = connectionAttempts();
 
   if (status === 401 || status === 403) {
     return { kind: 'auth', status, retryable: false, maxAttempts: 1 };
   }
   if (status === 429) {
-    return { kind: 'rate', status, retryable: true, maxAttempts: 8 };
+    return { kind: 'rate', status, retryable: true, maxAttempts: reconnect };
   }
   if (status !== null && status >= 500) {
-    return { kind: 'server', status, retryable: true, maxAttempts: 8 };
+    return { kind: 'server', status, retryable: true, maxAttempts: reconnect };
   }
   if (CONTEXT_RE.test(msg)) {
     return { kind: 'context', status, retryable: false, maxAttempts: 1 };
@@ -89,13 +102,18 @@ export function classifyFailure(err: unknown): {
   if (isOffline()) {
     return { kind: 'network', status: null, retryable: true, maxAttempts: Number.POSITIVE_INFINITY };
   }
-  if (err instanceof TypeError || FETCH_RE.test(msg)) {
-    // Online, yet the request never reached anyone: almost always CORS or a
-    // wrong base URL. Try a couple of times in case it was a blip, then stop.
-    return { kind: 'cors', status: null, retryable: true, maxAttempts: 3 };
+  if (isAbortError(err)) {
+    // Request timeout (not the user hitting Pause). Treat as a dropped call.
+    return { kind: 'network', status: null, retryable: true, maxAttempts: reconnect };
   }
-  if (NETWORK_RE.test(msg)) {
-    return { kind: 'network', status: null, retryable: true, maxAttempts: 8 };
+  if (CUT_OFF_RE.test(msg) || NETWORK_RE.test(msg)) {
+    return { kind: 'network', status: null, retryable: true, maxAttempts: reconnect };
+  }
+  if (err instanceof TypeError || FETCH_RE.test(msg)) {
+    // Online, yet the request never reached anyone: a dropped socket or CORS.
+    // Both get the same reconnect budget; after that the UI can still offer
+    // the CORS fallback because the kind stays `cors`.
+    return { kind: 'cors', status: null, retryable: true, maxAttempts: reconnect };
   }
   return { kind: 'unknown', status, retryable: false, maxAttempts: 1 };
 }
@@ -157,7 +175,7 @@ export function sleepOrOnline(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-const DEFAULT_DELAYS = [1000, 2000, 4000, 8000, 15_000];
+const DEFAULT_DELAYS = [1000, 2000, 4000, 8000, 15_000, 20_000, 30_000, 30_000, 30_000, 30_000];
 
 export async function withNetworkRetry<T>(
   fn: () => Promise<T>,

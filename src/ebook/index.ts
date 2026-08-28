@@ -6,7 +6,7 @@ import { parseEpub } from './epub.ts';
 import { DEFAULT_CHUNK_CHARS } from './chunk.ts';
 import { joinMarkdown } from './markdown.ts';
 import JSZip from 'jszip';
-import type { BookImage, PackedBook, ParsedBook } from './types.ts';
+import type { BookImage, PackedBook, ParsedBook, TranslateLangs } from './types.ts';
 
 /** Why a file could not be opened, in a form the UI can explain and act on. */
 export type ParseErrorCode = 'unsupported' | 'zip-no-fb2' | 'corrupt' | 'empty';
@@ -29,13 +29,14 @@ export const ACCEPTED_EXTENSIONS = '.epub,.fb2,.fb2.zip,.fbz';
 export async function parseBook(
   file: File | { name: string; bytes: Uint8Array },
   maxChunkChars = DEFAULT_CHUNK_CHARS,
+  langs?: TranslateLangs,
 ): Promise<ParsedBook> {
   const name = file.name;
   const bytes =
     file instanceof File ? new Uint8Array(await file.arrayBuffer()) : file.bytes;
   const lower = name.toLowerCase();
 
-  const book = await parseByExtension(lower, bytes, name, maxChunkChars);
+  const book = await parseByExtension(lower, bytes, name, maxChunkChars, langs);
   if (book.chunks.length === 0) throw new BookParseError('empty', name);
   return book;
 }
@@ -45,13 +46,14 @@ async function parseByExtension(
   bytes: Uint8Array,
   name: string,
   maxChunkChars: number,
+  langs?: TranslateLangs,
 ): Promise<ParsedBook> {
   try {
     if (lower.endsWith('.epub')) {
-      return await parseEpub(bytes, name, maxChunkChars);
+      return await parseEpub(bytes, name, maxChunkChars, langs);
     }
     if (lower.endsWith('.fb2')) {
-      return await parseFb2(bytes, name, maxChunkChars);
+      return await parseFb2(bytes, name, maxChunkChars, langs);
     }
     if (lower.endsWith('.fb2.zip') || lower.endsWith('.fbz') || lower.endsWith('.zip')) {
       const zip = await JSZip.loadAsync(bytes);
@@ -60,7 +62,7 @@ async function parseByExtension(
       // a different problem from a corrupt archive and deserves its own message.
       if (!fb2) throw new BookParseError('zip-no-fb2', name);
       const inner = await fb2.async('uint8array');
-      return await parseFb2(inner, fb2.name, maxChunkChars);
+      return await parseFb2(inner, fb2.name, maxChunkChars, langs);
     }
   } catch (err) {
     if (err instanceof BookParseError) throw err;
@@ -100,4 +102,4 @@ export async function packBook(options: {
 export { DEFAULT_CHUNK_CHARS } from './chunk.ts';
 export { validateTranslation } from './validate.ts';
 export { reverseMarkdownText } from './markdown.ts';
-export type { BookImage, Chunk, PackedBook, ParsedBook } from './types.ts';
+export type { BookImage, Chunk, PackedBook, ParsedBook, TranslateLangs } from './types.ts';
