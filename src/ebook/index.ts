@@ -1,10 +1,12 @@
-import { packEpub } from './epub.ts';
-import { packFb2 } from './fb2.ts';
+import { packEpubFromMarkdown } from './epub.ts';
+import { extractEpubImages } from './epub.ts';
+import { extractFb2Images } from './fb2.ts';
 import { parseFb2 } from './fb2.ts';
 import { parseEpub } from './epub.ts';
 import { DEFAULT_CHUNK_CHARS } from './chunk.ts';
+import { joinMarkdown } from './markdown.ts';
 import JSZip from 'jszip';
-import type { PackedBook, ParsedBook } from './types.ts';
+import type { BookImage, PackedBook, ParsedBook } from './types.ts';
 
 /** Why a file could not be opened, in a form the UI can explain and act on. */
 export type ParseErrorCode = 'unsupported' | 'zip-no-fb2' | 'corrupt' | 'empty';
@@ -67,31 +69,35 @@ async function parseByExtension(
   throw new BookParseError('unsupported', name);
 }
 
+export async function extractBookImages(
+  format: ParsedBook['format'],
+  bytes: Uint8Array,
+): Promise<BookImage[]> {
+  if (format === 'epub') return extractEpubImages(bytes);
+  return extractFb2Images(bytes);
+}
+
 export async function packBook(options: {
   book: ParsedBook;
   translations: string[];
   targetLang: string;
 }): Promise<PackedBook> {
   const base = options.book.fileName.replace(/\.(epub|fb2|fb2\.zip|fbz)$/i, '');
-  if (options.book.format === 'epub') {
-    return packEpub({
-      sourceBytes: options.book.sourceBytes,
-      chunks: options.book.chunks,
-      translations: options.translations,
-      targetLang: options.targetLang,
-      outName: `${base}.${options.targetLang}.epub`,
-    });
+  const markdown = joinMarkdown(options.translations);
+  let images = options.book.images ?? [];
+  if (images.length === 0) {
+    images = await extractBookImages(options.book.format, options.book.sourceBytes);
   }
-  return packFb2({
-    sourceBytes: options.book.sourceBytes,
-    chunks: options.book.chunks,
-    translations: options.translations,
+  return packEpubFromMarkdown({
+    title: options.book.title,
     targetLang: options.targetLang,
-    outName: `${base}.${options.targetLang}.fb2`,
+    markdown,
+    images,
+    outName: `${base}.${options.targetLang}.epub`,
   });
 }
 
 export { DEFAULT_CHUNK_CHARS } from './chunk.ts';
 export { validateTranslation } from './validate.ts';
-export { reverseTextNodes } from './xml.ts';
-export type { Chunk, PackedBook, ParsedBook } from './types.ts';
+export { reverseMarkdownText } from './markdown.ts';
+export type { BookImage, Chunk, PackedBook, ParsedBook } from './types.ts';

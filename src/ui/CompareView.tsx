@@ -141,7 +141,7 @@ export function CompareView(props: Props) {
             </div>
             <article
               className="page"
-              dangerouslySetInnerHTML={{ __html: markupToSafeHtml(chunk.xml) }}
+              dangerouslySetInnerHTML={{ __html: markupToSafeHtml(chunk.markdown) }}
             />
           </section>
         )}
@@ -159,7 +159,7 @@ export function CompareView(props: Props) {
             <article
               className={`page ${ready ? '' : 'is-pending'}`}
               dangerouslySetInnerHTML={{
-                __html: markupToSafeHtml(pair?.translation ?? chunk.xml),
+                __html: markupToSafeHtml(pair?.translation ?? chunk.markdown),
               }}
             />
           </section>

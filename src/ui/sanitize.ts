@@ -1,3 +1,5 @@
+import { markdownToXhtmlFragment } from '../ebook/markdown.ts';
+
 const ALLOWED = new Set([
   'p',
   'div',
@@ -95,12 +97,13 @@ function copySafe(src: Node, dstDoc: Document): Node | null {
   return out;
 }
 
-export function markupToSafeHtml(xml: string): string {
-  const wrapped = `<div xmlns="http://www.w3.org/1999/xhtml">${xml}</div>`;
+export function markupToSafeHtml(markdown: string): string {
+  const fragment = markdownToXhtmlFragment(markdown);
+  const wrapped = `<div xmlns="http://www.w3.org/1999/xhtml">${fragment}</div>`;
   const parsed = new DOMParser().parseFromString(wrapped, 'application/xml');
   const err = parsed.getElementsByTagName('parsererror')[0];
   const srcRoot = err
-    ? new DOMParser().parseFromString(`<div>${xml}</div>`, 'text/html').body.firstElementChild
+    ? new DOMParser().parseFromString(`<div>${fragment}</div>`, 'text/html').body.firstElementChild
     : parsed.documentElement;
   if (!srcRoot) return '';
   const dst = document.implementation.createHTMLDocument('');

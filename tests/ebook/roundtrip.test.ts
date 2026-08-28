@@ -2,22 +2,27 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDemoEpub,
   buildDemoFb2,
-  TINY_FONT,
   TINY_PNG,
 } from '../../src/ebook/demoBook.ts';
-import { parseEpub, packEpub, readZipEntry, zipFirstEntry } from '../../src/ebook/epub.ts';
-import { parseFb2, packFb2 } from '../../src/ebook/fb2.ts';
+import { parseEpub, packEpubFromMarkdown, readZipEntry, zipFirstEntry } from '../../src/ebook/epub.ts';
+import { parseFb2 } from '../../src/ebook/fb2.ts';
+import { packBook } from '../../src/ebook/index.ts';
+import { joinMarkdown } from '../../src/ebook/markdown.ts';
 
-describe('EPUB golden round-trip', () => {
-  it('keeps mimetype first+STORE, spine, and binary assets byte-identical', async () => {
+describe('EPUB markdown round-trip', () => {
+  it('converts to markdown, builds a new EPUB, and stays parseable', async () => {
     const src = await buildDemoEpub();
     const parsed = await parseEpub(src, 'alice.epub', 2500);
     expect(parsed.chunks.length).toBeGreaterThan(0);
+    const md = parsed.chunks.map((c) => c.markdown).join('');
+    expect(md).toContain('Alice');
+    expect(md).toMatch(/# Down the Rabbit-Hole/);
+    expect(md).toContain('![A tiny cover](images/cover.png)');
 
-    const packed = await packEpub({
-      sourceBytes: src,
-      chunks: parsed.chunks,
-      translations: parsed.chunks.map((c) => c.xml),
+    const packed = await packEpubFromMarkdown({
+      title: parsed.title,
+      markdown: joinMarkdown(parsed.chunks.map((c) => c.markdown)),
+      images: parsed.images,
       targetLang: 'en',
       outName: 'alice.en.epub',
     });
@@ -27,37 +32,35 @@ describe('EPUB golden round-trip', () => {
     expect(first.method).toBe(0);
 
     const png = await readZipEntry(packed.bytes, 'OEBPS/images/cover.png');
-    const font = await readZipEntry(packed.bytes, 'OEBPS/fonts/dummy.ttf');
-    const css = await readZipEntry(packed.bytes, 'OEBPS/styles.css');
     expect(png).toEqual(TINY_PNG);
-    expect(font).toEqual(TINY_FONT);
-    expect(new TextDecoder().decode(css)).toContain('font-family');
 
-    const opf = await readZipEntry(packed.bytes, 'OEBPS/content.opf');
-    const opfText = new TextDecoder().decode(opf);
-    expect(opfText).toContain('idref="ch1"');
-    expect(opfText).toContain('idref="ch2"');
-    expect(opfText).toContain('href="images/cover.png"');
+    const xhtml = await readZipEntry(packed.bytes, 'OEBPS/chapter-001.xhtml');
+    expect(new TextDecoder().decode(xhtml)).toContain('Alice');
+
+    const again = await parseEpub(packed.bytes, packed.fileName, 2500);
+    expect(again.chunks.length).toBeGreaterThan(0);
+    expect(again.chunks.map((c) => c.markdown).join('')).toContain('Alice');
+    expect(again.title).toBe('Alice excerpt');
   });
 });
 
-describe('FB2 round-trip', () => {
-  it('copies binary covers unchanged', () => {
+describe('FB2 → markdown → EPUB', () => {
+  it('keeps the cover image in the generated EPUB', async () => {
     const xml = buildDemoFb2();
     const bytes = new TextEncoder().encode(xml);
     const parsed = parseFb2(bytes, 'alice.fb2', 2500);
-    const packed = packFb2({
-      sourceBytes: bytes,
-      chunks: parsed.chunks,
-      translations: parsed.chunks.map((c) => c.xml),
+    expect(parsed.chunks.map((c) => c.markdown).join('')).toContain('Alice');
+
+    const packed = await packBook({
+      book: parsed,
+      translations: parsed.chunks.map((c) => c.markdown),
       targetLang: 'en',
-      outName: 'alice.en.fb2',
     });
-    const out = new TextDecoder().decode(packed.bytes);
-    expect(out).toContain('encoding="UTF-8"');
-    expect(out).toContain('id="cover.png"');
-    const origBin = xml.match(/<binary[^>]*>([^<]+)<\/binary>/)?.[1];
-    const outBin = out.match(/<binary[^>]*>([^<]+)<\/binary>/)?.[1];
-    expect(outBin).toBe(origBin);
+    expect(packed.fileName).toBe('alice.en.epub');
+    const png = await readZipEntry(packed.bytes, 'OEBPS/images/cover.png');
+    expect(png).toEqual(TINY_PNG);
+
+    const again = await parseEpub(packed.bytes, packed.fileName, 2500);
+    expect(again.chunks.map((c) => c.markdown).join('')).toContain('Alice');
   });
 });

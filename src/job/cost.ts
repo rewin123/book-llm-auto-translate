@@ -22,8 +22,8 @@ export async function estimateCost(
   model: string,
 ): Promise<CostEstimate> {
   const n = Math.max(chunks.length, 1);
-  const sample = chunks[0]?.xml.slice(0, 2000) ?? '';
-  const avgChars = chunks.reduce((s, c) => s + c.xml.length, 0) / n;
+  const sample = chunks[0]?.markdown.slice(0, 2000) ?? '';
+  const avgChars = chunks.reduce((s, c) => s + c.markdown.length, 0) / n;
   const last2 = charsToTokens(avgChars * 2, sample);
   const perIn = charsToTokens(avgChars, sample) + STYLE_GUIDE_TOKENS + GLOSSARY_CAP_TOKENS + last2;
   const perOut = Math.ceil(charsToTokens(avgChars, sample) * 1.15);

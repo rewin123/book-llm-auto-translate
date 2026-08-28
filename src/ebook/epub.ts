@@ -1,11 +1,24 @@
 import JSZip from 'jszip';
 import { indexChunks } from './chunk.ts';
-import { findAll, findEl, innerXml, parseXml, textContent } from './xml.ts';
-import type { Chunk, PackedBook, ParsedBook } from './types.ts';
+import { ImageBag, isImagePath, mimeFromPath } from './images.ts';
+import {
+  ensureHeading,
+  escapeXml,
+  htmlToMarkdown,
+  markdownToXhtmlFragment,
+  splitMarkdownIntoChapters,
+} from './markdown.ts';
+import { findAll, findEl, parseXml, textContent } from './xml.ts';
+import type { BookImage, PackedBook, ParsedBook } from './types.ts';
 
 const MIME = 'application/epub+zip';
+const CSS = `body { font-family: Georgia, "Times New Roman", serif; line-height: 1.55; margin: 1.25em; }
+h1, h2, h3 { font-weight: 700; line-height: 1.25; }
+img { max-width: 100%; height: auto; }
+blockquote { margin-left: 1em; padding-left: 0.8em; border-left: 2px solid #ccc; }
+`;
 
-function zipPath(root: string, href: string): string {
+export function zipPath(root: string, href: string): string {
   const dir = root.split('/').slice(0, -1).join('/');
   const joined = dir ? `${dir}/${href}` : href;
   return joined.replace(/\\/g, '/').split('/').reduce<string[]>((acc, part) => {
@@ -30,6 +43,23 @@ function opfAttr(el: Element, name: string): string {
   );
 }
 
+export async function extractEpubImages(bytes: Uint8Array): Promise<BookImage[]> {
+  const zip = await JSZip.loadAsync(bytes);
+  return (await loadEpubImages(zip)).images;
+}
+
+async function loadEpubImages(zip: JSZip): Promise<ImageBag> {
+  const bag = new ImageBag();
+  const names = Object.keys(zip.files).sort();
+  for (const name of names) {
+    const entry = zip.files[name];
+    if (!entry || entry.dir || !isImagePath(name)) continue;
+    const bytes = await entry.async('uint8array');
+    bag.add(name, bytes, mimeFromPath(name));
+  }
+  return bag;
+}
+
 export async function parseEpub(
   bytes: Uint8Array,
   fileName: string,
@@ -44,17 +74,22 @@ export async function parseEpub(
 
   const opfXml = await readText(zip, opfPath);
   const opf = parseXml(opfXml);
-  const manifest = new Map<string, { href: string; media: string }>();
+  const manifest = new Map<string, { href: string; media: string; properties: string }>();
   for (const item of findAll(opf, 'item')) {
     const id = opfAttr(item, 'id');
     const href = opfAttr(item, 'href');
     if (id && href) {
-      manifest.set(id, { href, media: opfAttr(item, 'media-type') });
+      manifest.set(id, {
+        href,
+        media: opfAttr(item, 'media-type'),
+        properties: opfAttr(item, 'properties'),
+      });
     }
   }
 
   const title = textContent(findEl(opf, 'title')) || fileName.replace(/\.[^.]+$/, '');
-  const pieces: { documentPath: string; chapterTitle: string; xml: string }[] = [];
+  const images = await loadEpubImages(zip);
+  const pieces: { documentPath: string; chapterTitle: string; markdown: string }[] = [];
 
   const itemrefs = findAll(opf, 'itemref');
   let chapterN = 0;
@@ -62,105 +97,191 @@ export async function parseEpub(
     const idref = opfAttr(ref, 'idref');
     const item = manifest.get(idref);
     if (!item) continue;
+    if (opfAttr(ref, 'linear') === 'no') continue;
+    if (/\bnav\b/i.test(item.properties)) continue;
     if (!/html|xml|xhtml/i.test(item.media) && !item.href.match(/\.x?html?$/i)) continue;
     const path = zipPath(opfPath, item.href);
     const xhtml = await readText(zip, path);
-    let inner = '';
+    const forParse = xhtml.replace(/<(?:link|script)\b[^>]*>/gi, '');
+    let body: Element | undefined;
     let headingText = '';
     try {
-      const doc = parseXml(xhtml);
-      const body = findEl(doc, 'body') ?? doc.documentElement;
-      inner = innerXml(body);
+      const doc = parseXml(forParse);
+      body = findEl(doc, 'body') ?? doc.documentElement;
       const heading = findEl(body, 'h1') || findEl(body, 'h2') || findEl(body, 'title');
       headingText = textContent(heading);
     } catch {
-      const doc = new DOMParser().parseFromString(xhtml, 'text/html');
-      const body = doc.body;
-      inner = body?.innerHTML ?? xhtml;
+      const doc = new DOMParser().parseFromString(forParse, 'text/html');
+      body = doc.body ?? undefined;
       headingText = body?.querySelector('h1,h2,title')?.textContent?.trim() ?? '';
     }
+    if (!body) continue;
+    const mdOpts = {
+      images,
+      resolveHref: (href: string) => zipPath(path, href),
+    };
+    let markdown = htmlToMarkdown(body, mdOpts);
     chapterN += 1;
-    pieces.push({
-      documentPath: path,
-      chapterTitle: headingText || `Chapter ${chapterN}`,
-      xml: inner,
-    });
+    const chapterTitle = headingText || `Chapter ${chapterN}`;
+    markdown = ensureHeading(markdown, chapterTitle);
+    if (!markdown.trim()) continue;
+    pieces.push({ documentPath: path, chapterTitle, markdown });
   }
 
   const chunks = indexChunks(pieces, maxChunkChars);
-  return { format: 'epub', fileName, chunks, sourceBytes: bytes, title };
+  return { format: 'epub', fileName, chunks, sourceBytes: bytes, title, images: images.images };
 }
 
-function replaceBodyInner(xhtml: string, inner: string): string {
-  const doc = parseXml(xhtml);
-  const body = findEl(doc, 'body');
-  if (!body) return xhtml;
-  while (body.firstChild) body.removeChild(body.firstChild);
-  const wrapped = parseXml(
-    `<div xmlns="http://www.w3.org/1999/xhtml">${inner}</div>`,
-  );
-  const div = wrapped.documentElement;
-  const kids = Array.from(div.childNodes);
-  for (const kid of kids) {
-    body.appendChild(doc.importNode(kid, true));
-  }
-  const html = doc.documentElement;
-  const serialized = new XMLSerializer().serializeToString(html);
-  if (xhtml.trimStart().startsWith('<?xml')) {
-    const decl = xhtml.match(/^<\?xml[^?]*\?>\s*/);
-    const doctype = xhtml.match(/<!DOCTYPE[^>]*>\s*/i);
-    return `${decl?.[0] ?? '<?xml version="1.0" encoding="UTF-8"?>\n'}${doctype?.[0] ?? ''}${serialized}`;
-  }
-  return serialized;
+function slug(s: string): string {
+  const ascii = s
+    .normalize('NFKD')
+    .replace(/[^\w\s-]+/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .toLowerCase()
+    .slice(0, 48);
+  return ascii || 'book';
 }
 
-function setDcLanguage(opfXml: string, lang: string): string {
-  const doc = parseXml(opfXml);
-  const language = findEl(doc, 'language');
-  if (language) language.textContent = lang;
-  return new XMLSerializer().serializeToString(doc.documentElement);
+function chapterFileName(i: number): string {
+  return `chapter-${String(i + 1).padStart(3, '0')}.xhtml`;
 }
 
-export async function packEpub(options: {
-  sourceBytes: Uint8Array;
-  chunks: Chunk[];
-  translations: string[];
+function wrapChapterXhtml(opts: { title: string; lang: string; bodyMd: string }): string {
+  const inner = markdownToXhtmlFragment(opts.bodyMd) || '<p></p>';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${escapeXml(opts.lang)}" lang="${escapeXml(opts.lang)}">
+<head>
+  <title>${escapeXml(opts.title)}</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
+</head>
+<body>
+${inner}
+</body>
+</html>
+`;
+}
+
+function navXhtml(opts: { title: string; lang: string; chapters: { title: string; href: string }[] }): string {
+  const items = opts.chapters
+    .map((c) => `      <li><a href="${escapeXml(c.href)}">${escapeXml(c.title)}</a></li>`)
+    .join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${escapeXml(opts.lang)}" lang="${escapeXml(opts.lang)}">
+<head>
+  <title>${escapeXml(opts.title)}</title>
+</head>
+<body>
+  <nav epub:type="toc" id="toc">
+    <h1>${escapeXml(opts.title)}</h1>
+    <ol>
+${items}
+    </ol>
+  </nav>
+</body>
+</html>
+`;
+}
+
+function contentOpf(opts: {
+  title: string;
+  lang: string;
+  id: string;
+  chapters: { id: string; href: string }[];
+  images: BookImage[];
+}): string {
+  const manifestChapters = opts.chapters
+    .map((c) => `    <item id="${c.id}" href="${c.href}" media-type="application/xhtml+xml"/>`)
+    .join('\n');
+  const manifestImages = opts.images
+    .map((img, i) => {
+      const href = img.href.startsWith('images/') ? img.href : `images/${img.href.split('/').pop()}`;
+      return `    <item id="img${i + 1}" href="${escapeXml(href)}" media-type="${escapeXml(img.mimeType)}"/>`;
+    })
+    .join('\n');
+  const spine = opts.chapters.map((c) => `    <itemref idref="${c.id}"/>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>${escapeXml(opts.title)}</dc:title>
+    <dc:language>${escapeXml(opts.lang)}</dc:language>
+    <dc:identifier id="bookid">${escapeXml(opts.id)}</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="css" href="styles.css" media-type="text/css"/>
+${manifestChapters}
+${manifestImages}
+  </manifest>
+  <spine>
+    <itemref idref="nav" linear="no"/>
+${spine}
+  </spine>
+</package>
+`;
+}
+
+const CONTAINER = `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+`;
+
+export async function packEpubFromMarkdown(options: {
+  title: string;
   targetLang: string;
+  markdown: string;
+  images: BookImage[];
   outName: string;
 }): Promise<PackedBook> {
-  const src = await JSZip.loadAsync(options.sourceBytes);
+  const chapters = splitMarkdownIntoChapters(options.markdown);
+  const usedImages = usedImagesFor(options.markdown, options.images);
+
   const out = new JSZip();
   out.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+  out.file('META-INF/container.xml', CONTAINER);
+  out.file('OEBPS/styles.css', CSS);
 
-  const entries = Object.values(src.files);
-  for (const entry of entries) {
-    if (entry.dir || entry.name === 'mimetype') continue;
-    out.file(entry.name, await entry.async('uint8array'), {
-      compression: 'DEFLATE',
-      compressionOptions: { level: 6 },
-    });
+  const spine = chapters.map((ch, i) => ({
+    id: `ch${i + 1}`,
+    href: chapterFileName(i),
+    title: ch.title,
+    body: ch.body,
+  }));
+
+  for (const ch of spine) {
+    out.file(
+      `OEBPS/${ch.href}`,
+      wrapChapterXhtml({ title: ch.title, lang: options.targetLang, bodyMd: ch.body }),
+    );
   }
 
-  const byDoc = new Map<string, string[]>();
-  options.chunks.forEach((chunk, i) => {
-    const xml = options.translations[i] ?? chunk.xml;
-    const list = byDoc.get(chunk.documentPath) ?? [];
-    list.push(xml);
-    byDoc.set(chunk.documentPath, list);
-  });
+  out.file(
+    'OEBPS/nav.xhtml',
+    navXhtml({
+      title: options.title,
+      lang: options.targetLang,
+      chapters: spine.map((c) => ({ title: c.title, href: c.href })),
+    }),
+  );
 
-  for (const [path, parts] of byDoc) {
-    const original = await src.file(path)!.async('string');
-    out.file(path, replaceBodyInner(original, parts.join('')));
+  for (const img of usedImages) {
+    const href = img.href.startsWith('images/') ? img.href : `images/${img.href.split('/').pop()}`;
+    out.file(`OEBPS/${href}`, img.bytes, { binary: true });
   }
 
-  const containerXml = await src.file('META-INF/container.xml')!.async('string');
-  const container = parseXml(containerXml);
-  const opfPath = findEl(container, 'rootfile')?.getAttribute('full-path');
-  if (opfPath && src.file(opfPath)) {
-    const opfXml = await src.file(opfPath)!.async('string');
-    out.file(opfPath, setDcLanguage(opfXml, options.targetLang));
-  }
+  out.file(
+    'OEBPS/content.opf',
+    contentOpf({
+      title: options.title,
+      lang: options.targetLang,
+      id: `urn:booktrans:${slug(options.title)}-${options.targetLang}`,
+      chapters: spine.map((c) => ({ id: c.id, href: c.href })),
+      images: usedImages,
+    }),
+  );
 
   const bytes = await out.generateAsync({
     type: 'uint8array',
@@ -170,6 +291,21 @@ export async function packEpub(options: {
   });
 
   return { bytes, mimeType: MIME, fileName: options.outName };
+}
+
+function usedImagesFor(markdown: string, images: BookImage[]): BookImage[] {
+  if (images.length === 0) return [];
+  const needed = new Set<string>();
+  const re = /!\[[^\]]*]\(([^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(markdown))) needed.add(m[1]!.trim());
+  const matched = images.filter(
+    (img) =>
+      needed.has(img.href) ||
+      needed.has(img.href.split('/').pop() ?? '') ||
+      [...needed].some((src) => src.split('/').pop() === img.href.split('/').pop()),
+  );
+  return matched.length > 0 ? matched : images;
 }
 
 export function zipFirstEntry(bytes: Uint8Array): { name: string; method: number } {
@@ -186,10 +322,6 @@ export function zipFirstEntry(bytes: Uint8Array): { name: string; method: number
   return { name, method };
 }
 
-export function isBinaryEpubPath(path: string): boolean {
-  return /\.(png|jpe?g|gif|webp|svg|ttf|otf|woff2?|mp3|mp4|css|js)$/i.test(path);
-}
-
 export async function readZipEntry(
   bytes: Uint8Array,
   path: string,
@@ -198,12 +330,3 @@ export async function readZipEntry(
   const file = zip.file(path);
   return file?.async('uint8array');
 }
-
-export function collectEpubItems(xmlOpf: string): { id: string; href: string }[] {
-  const opf = parseXml(xmlOpf);
-  return findAll(opf, 'item').map((item) => ({
-    id: item.getAttribute('id') || '',
-    href: item.getAttribute('href') || '',
-  }));
-}
-

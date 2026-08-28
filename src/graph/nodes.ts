@@ -16,7 +16,7 @@ export async function translateChunkNode(opts: {
   lastTwo: TranslatedPair[];
   abortSignal: AbortSignal;
   retries?: number;
-}): Promise<{ xml: string; glossary: GlossaryEntry[]; usedOriginal: boolean; reason?: string }> {
+}): Promise<{ markdown: string; glossary: GlossaryEntry[]; usedOriginal: boolean; reason?: string }> {
   const retries = opts.retries ?? 2;
   let lastReason = 'unknown';
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -25,8 +25,8 @@ export async function translateChunkNode(opts: {
       model: opts.client.model,
       abortSignal: opts.abortSignal,
       // Sized from this chunk: a fixed cap truncated long chunks, which then
-      // failed well-formedness and silently fell back to the original.
-      maxTokens: outputTokenBudget(opts.chunk.xml.length),
+      // failed validation and silently fell back to the original.
+      maxTokens: outputTokenBudget(opts.chunk.markdown.length),
       messages: [
         {
           role: 'system',
@@ -39,22 +39,22 @@ export async function translateChunkNode(opts: {
         {
           role: 'user',
           content: translateUserPrompt({
-            xml: opts.chunk.xml,
-            glossary: glossaryForChunk(opts.glossary, opts.chunk.xml),
+            markdown: opts.chunk.markdown,
+            glossary: glossaryForChunk(opts.glossary, opts.chunk.markdown),
             lastTwo: opts.lastTwo,
           }),
         },
       ],
     });
     const parsed = parseTranslateOutput(text);
-    const check = validateTranslation(opts.chunk.xml, parsed.xml);
+    const check = validateTranslation(opts.chunk.markdown, parsed.markdown);
     if (check.ok) {
-      return { xml: parsed.xml, glossary: parsed.glossary, usedOriginal: false };
+      return { markdown: parsed.markdown, glossary: parsed.glossary, usedOriginal: false };
     }
     lastReason = check.reason;
   }
   return {
-    xml: opts.chunk.xml,
+    markdown: opts.chunk.markdown,
     glossary: [],
     usedOriginal: true,
     reason: lastReason,

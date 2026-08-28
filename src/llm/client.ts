@@ -1,4 +1,4 @@
-import { reverseTextNodes } from '../ebook/xml.ts';
+import { reverseMarkdownText } from '../ebook/markdown.ts';
 import type { GlossaryEntry } from '../glossary/index.ts';
 
 export type ChatMessage = {
@@ -60,8 +60,8 @@ export function mockClient(): LlmClient {
         }
         return { text: MOCK_STYLE_GUIDE, toolCalls: [] };
       }
-      const xml = extractTagged(content, 'SOURCE') ?? content;
-      return { text: formatTranslateOutput(reverseTextNodes(xml), []), toolCalls: [] };
+      const markdown = extractTagged(content, 'SOURCE') ?? content;
+      return { text: formatTranslateOutput(reverseMarkdownText(markdown), []), toolCalls: [] };
     },
   };
 }
@@ -85,11 +85,11 @@ Transliterate personal names; do not localize Alice → Алиса unless the ta
 Prefer established target equivalents over calques.
 
 ## Typography
-Do not alter HTML/XML tags, ids, hrefs, or src. Translate alt text.
+Do not alter markdown structure, link targets, or image paths. Translate alt text.
 
 ## Do / Don't
-- Do preserve <em> and italics.
-- Don't drop the image tag.
+- Do preserve *emphasis* / **strong**.
+- Don't drop images.
 - Don't add translator footnotes.
 `;
 
@@ -99,22 +99,22 @@ export function extractTagged(text: string, tag: string): string | undefined {
   return m?.[1]?.trim();
 }
 
-export function formatTranslateOutput(xml: string, glossary: GlossaryEntry[]): string {
+export function formatTranslateOutput(markdown: string, glossary: GlossaryEntry[]): string {
   const lines = glossary.map((g) => `${g.src} | ${g.dst}`).join('\n');
-  return `<<<TRANSLATION>>>\n${xml}\n<<<END_TRANSLATION>>>\n<<<GLOSSARY>>>\n${lines}\n<<<END_GLOSSARY>>>`;
+  return `<<<TRANSLATION>>>\n${markdown}\n<<<END_TRANSLATION>>>\n<<<GLOSSARY>>>\n${lines}\n<<<END_GLOSSARY>>>`;
 }
 
-export function parseTranslateOutput(text: string): { xml: string; glossary: GlossaryEntry[] } {
-  const xml = extractTagged(text, 'TRANSLATION') ?? stripFence(text);
+export function parseTranslateOutput(text: string): { markdown: string; glossary: GlossaryEntry[] } {
+  const markdown = extractTagged(text, 'TRANSLATION') ?? stripFence(text);
   const raw = extractTagged(text, 'GLOSSARY') ?? '';
   const glossary: GlossaryEntry[] = [];
   for (const line of raw.split('\n')) {
     const m = line.trim().match(/^(.+?)\s*(?:->|—|–|\|)\s*(.+)$/);
     if (m) glossary.push({ src: m[1]!.trim(), dst: m[2]!.trim() });
   }
-  return { xml: xml.trim(), glossary };
+  return { markdown: markdown.trim(), glossary };
 }
 
 function stripFence(text: string): string {
-  return text.replace(/^```(?:xml|html)?\n?/i, '').replace(/\n?```$/i, '').trim();
+  return text.replace(/^```(?:markdown|md|xml|html)?\n?/i, '').replace(/\n?```$/i, '').trim();
 }

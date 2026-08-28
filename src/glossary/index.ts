@@ -14,8 +14,8 @@ export function mergeGlossary(
   return [...map.entries()].map(([src, dst]) => ({ src, dst }));
 }
 
-export function glossaryForChunk(glossary: GlossaryEntry[], xml: string): GlossaryEntry[] {
-  return glossary.filter((e) => e.src && xml.includes(e.src));
+export function glossaryForChunk(glossary: GlossaryEntry[], markdown: string): GlossaryEntry[] {
+  return glossary.filter((e) => e.src && markdown.includes(e.src));
 }
 
 export function parseGlossaryLines(text: string): GlossaryEntry[] {

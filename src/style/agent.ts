@@ -27,10 +27,10 @@ Transliterate personal names consistently; do not translate them unless they are
 Prefer a natural target equivalent over a calque, unless wordplay is load-bearing.
 
 ## Typography
-Never alter XML/HTML tags, id, href, src.
+Never break markdown, link targets, or image paths.
 
 ## Do / Don't
-- Do keep emphasis tags.
+- Do keep *emphasis*.
 - Don't drop images or links.
 `;
 
@@ -53,7 +53,7 @@ export async function runStyleAgent(opts: {
       key: 'readChunk',
       params: { idx },
     });
-    return opts.chunks[idx]!.xml;
+    return opts.chunks[idx]!.markdown;
   };
 
   if (opts.client.id === 'mock') {
@@ -76,7 +76,7 @@ export async function runStyleAgent(opts: {
         prompt: `Write the style sheet for this book. total_chunks=${total}. Use read_chunk.`,
         tools: {
           read_chunk: tool({
-            description: 'Read source markup for chunk idx (0-based). Not a translation.',
+            description: 'Read source markdown for chunk idx (0-based). Not a translation.',
             inputSchema: z.object({ idx: z.number().int() }),
             execute: async ({ idx }: { idx: number }) => read(idx),
           }),

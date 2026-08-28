@@ -4,7 +4,7 @@ Zero-install book translator: everything runs in the browser. No backend.
 
 ## Layout
 
-- `src/ebook/` — parse, encode (incl. windows-1251 FB2), chunk, validate markup, pack EPUB/FB2
+- `src/ebook/` — parse EPUB/FB2 to markdown (incl. windows-1251 FB2), chunk, validate, pack a new EPUB
 - `src/job/` — `JobRunner` (sequential, `concurrency` reserved), IndexedDB checkpoint, abort, cost estimate
 - `src/graph/` — translate node (style guide + glossary + last two chunks)
 - `src/style/` — style agent with `read_chunk`
@@ -29,5 +29,5 @@ npm run dev
 ## Rules
 
 - Do not add a server. Keys stay in `booktrans.v1.*` localStorage.
-- Do not rewrite EPUB from scratch — clone the zip and replace translated documents.
+- Do not splice translated markup back into the original EPUB. Convert to markdown, translate, then build a new EPUB.
 - RAG and parallel windows are post-v1 (`JobRunner` already accepts `concurrency`).
