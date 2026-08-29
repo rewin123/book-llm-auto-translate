@@ -51,7 +51,7 @@ The build uses `base: './'`, so you can open it as static files or host it on Gi
 
 ## How to use it
 
-Five steps in the header: **Book** → **Settings** → **Style** → **Glossary** → **Translate**.
+Six steps in the header: **Book** → **Settings** → **Style** → **Verify** → **Glossary** → **Translate**. Glossary runs by itself; you do not stop to edit it.
 
 ### 1. Book
 
@@ -134,12 +134,14 @@ Provider, model, and key stay here, along with generation controls:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Parallel threads | 1 | Contiguous sequential windows. `1` is the old behaviour. |
+| Parallel threads | 1 | Contiguous sequential windows. `1` is the old behaviour. No upper cap. |
 | Chunk size | 5,000 | Standard markdown split. Changing it re-splits the book. |
 | Chunks per glossary call | 4 | How many standard chunks form one glossary LLM request. |
 | Chunks per review call | 5 | Stored for a later review pass. Does not change translation yet. |
 
 Languages are chosen on this screen. Changing the pair re-parses so bilingual books can drop already-translated paragraphs.
+
+The Generation card shows an estimated dollar cost for glossary + translation at the current model, concurrency, and glossary batch. It is not a bill.
 
 Event log size (5–200, default 40) stays under Advanced. Changing chunk size **re-splits** the book; if translated chunks already exist, the app warns you.
 
@@ -155,19 +157,29 @@ Then you edit the guidelines. Everything here goes into **every** later request.
 
 The style-agent user message includes the chapter list with 1-based chunk ranges, for example `# Redemption (chunks from 12 to 18)`. `read_chunk` is still 0-based.
 
-The primary button is **Build the glossary**.
+The primary button is **Verify on a sample**.
 
-### 4. Glossary
+### 4. Verify
 
-Standard chunks are packed into big chunks (`glossaryBatch` at a time). Each big chunk is one LLM call that returns a JSON object `{ "Andrei": "Андрей", ... }`. Extracts are merged left-to-right; if the same source form appears with two translations, the **earlier** big chunk wins.
+The longest chunk is translated in isolation (it is not written into the book). Chat sits next to the **translation above the original**. Say what is wrong — names, register, punctuation — and an improve agent can:
 
-You can edit the merged list. From here it is **frozen** — translate calls do not add or rewrite rows.
+- patch a unique substring in the style sheet;
+- insert or overwrite a glossary row;
+- retranslate this chunk so you see the new sample.
 
-**Chunks to translate** — a number from 1 to the full book. Shortcuts fill in the first chapter or all chunks. The cost/time estimate follows the number you pick and includes the glossary pass. Untranslated chunks stay in the source language; you can **Translate the rest** later.
+Tool calls stream into the chat as they happen. Changing the chunk number rebuilds the sample and starts a fresh agent.
 
-The estimate is **not a bill**. Translation calls carry the style guidelines, the full glossary, and the previous two chunks (when those translations already exist). Prices come from [models.dev](https://models.dev); unknown models show “price unknown”.
+When the sample looks right, **Translate the whole book**. The glossary is extracted next, then the book.
 
-### 5. Translate
+### 5. Glossary
+
+Standard chunks are packed into big chunks (`glossaryBatch` at a time). Each big chunk is one LLM call that returns a JSON object `{ "Andrei": "Андрей", ... }`. Extracts are merged left-to-right; if the same source form appears with two translations, the **earlier** big chunk wins (seed and verify rows first).
+
+This pass is automatic. There is no review screen: when the list is built, translation starts.
+
+The estimate on Settings is **not a bill**. Translation calls carry the style guidelines, the full glossary, and the previous two chunks (when those translations already exist). Prices come from [models.dev](https://models.dev); unknown models show “price unknown”.
+
+### 6. Translate
 
 Chunks are split into `ceil(N / parallel)` contiguous windows. Each window runs sequentially; windows run in parallel. The first chunk of a later window has no previous translation until a resume. The model returns **only** the translation.
 
@@ -204,10 +216,11 @@ Summary: translated vs kept original, tokens, cost, time. Referenced images are 
 1. Convert EPUB/FB2 to markdown (spine documents or FB2 `section`s become chapters; `notes` / `comments` bodies are skipped). Images become `![alt](path)`.
 2. Split markdown by up to *N* characters on paragraph, heading, and word boundaries (never inside a link target or code fence).
 3. Style agent (`read_chunk`) writes style guidelines, with a chapter list in the user message → you edit.
-4. Glossary pass: big chunks of `glossaryBatch` standard chunks, one JSON map per call, merged first-wins (seed rows first, then earlier big chunks).
-5. Parallel translation: `ceil(N / parallel)` sequential windows. Each call gets the frozen glossary, style guide, and the previous two translations when they exist. Output is translation only.
-6. Markdown is validated: non-empty, plausible text length, preserved image paths and link targets, no explicit model refusal. Three failures keep the original chunk.
-7. Translated chunks are concatenated into one markdown document, then converted to a new EPUB.
+4. Guideline verifier: translate the longest chunk, chat to patch the sheet and glossary, retranslate the sample.
+5. Glossary pass: big chunks of `glossaryBatch` standard chunks, one JSON map per call, merged first-wins (seed and verify rows first, then earlier big chunks). Runs unattended, then translation starts.
+6. Parallel translation: `ceil(N / parallel)` sequential windows. Each call gets the frozen glossary, style guide, and the previous two translations when they exist. Output is translation only.
+7. Markdown is validated: non-empty, plausible text length, preserved image paths and link targets, no explicit model refusal. Three failures keep the original chunk.
+8. Translated chunks are concatenated into one markdown document, then converted to a new EPUB.
 
 One model request times out after **3 minutes**.
 
@@ -277,7 +290,8 @@ Layout (more in [CONTRIBUTING.md](CONTRIBUTING.md)):
 | Path | Role |
 | --- | --- |
 | `src/ebook/` | parse EPUB/FB2 → markdown, encodings (incl. windows-1251), chunk, validate markdown, pack a new EPUB |
-| `src/job/` | `JobRunner` (style → glossary → parallel windows), IndexedDB checkpoint, abort, cost estimate |
+| `src/job/` | `JobRunner` (style → verify → glossary → parallel windows), IndexedDB checkpoint, abort, cost estimate |
+| `src/verify/` | sample-chunk verifier: improve agent, tools, longest-chunk pick |
 | `src/graph/` | glossary extract + translate node (frozen glossary + last two chunks) |
 | `src/style/` | style agent with `read_chunk` |
 | `src/llm/` | BYOK providers, mock LLM, models.dev prices, prompts |

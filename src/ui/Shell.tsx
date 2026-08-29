@@ -3,7 +3,7 @@ import type { Locale, Theme } from '../storage/prefs.ts';
 import { useT } from '../i18n/index.ts';
 import { MoonIcon, SunIcon, CheckIcon, GithubIcon } from './icons.tsx';
 
-export type Step = 'book' | 'settings' | 'brief' | 'glossary' | 'run';
+export type Step = 'book' | 'settings' | 'brief' | 'verify' | 'glossary' | 'run';
 
 const GITHUB_URL = 'https://github.com/rewin123/book-llm-auto-translate';
 
@@ -68,6 +68,7 @@ export function Stepper({ current }: { current: Step }) {
     { id: 'book', label: t.stepBook },
     { id: 'settings', label: t.stepSettings },
     { id: 'brief', label: t.stepStyle },
+    { id: 'verify', label: t.stepVerify },
     { id: 'glossary', label: t.stepGlossary },
     { id: 'run', label: t.stepTranslate },
   ];

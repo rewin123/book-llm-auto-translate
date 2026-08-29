@@ -4,7 +4,6 @@ import { storageKeys } from './keys.ts';
 export const DEFAULT_CONCURRENCY = 1;
 export const DEFAULT_GLOSSARY_BATCH = 4;
 export const DEFAULT_REVIEW_BATCH = 5;
-export const MAX_CONCURRENCY = 8;
 export const MAX_BATCH = 20;
 
 export type SetupPrefs = {
@@ -19,7 +18,7 @@ export type SetupPrefs = {
 
 export function clampConcurrency(n: number): number {
   if (!Number.isFinite(n)) return DEFAULT_CONCURRENCY;
-  return Math.min(MAX_CONCURRENCY, Math.max(1, Math.round(n)));
+  return Math.max(1, Math.round(n));
 }
 
 export function clampBatch(n: number, fallback: number): number {

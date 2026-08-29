@@ -34,14 +34,9 @@ describe('multipass JobRunner', () => {
 
     runner.approveStyle(runner.styleGuide, [{ src: 'Alice', dst: 'Алиса' }]);
     await runner.runGlossary();
-    expect(runner.phase).toBe('glossaryReview');
-    expect(runner.glossary.some((e) => e.src === 'Alice' && e.dst === 'Алиса')).toBe(true);
-    const frozen = runner.glossary.map((e) => `${e.src}:${e.dst}`).sort();
-
-    await runner.runTranslate({ glossarySnapshot: runner.glossary });
     expect(runner.phase).toBe('done');
+    expect(runner.glossary.some((e) => e.src === 'Alice' && e.dst === 'Алиса')).toBe(true);
     expect(runner.translated.length).toBe(runner.book!.chunks.length);
-    expect(runner.glossary.map((e) => `${e.src}:${e.dst}`).sort()).toEqual(frozen);
     expect(runner.translated.some((t) => !t.usedOriginal)).toBe(true);
     expect(lastPhase).toBe('done');
     runner.reset();

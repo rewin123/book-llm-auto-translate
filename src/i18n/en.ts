@@ -11,6 +11,7 @@ export const en = {
   stepBook: 'Book',
   stepSettings: 'Settings',
   stepStyle: 'Style',
+  stepVerify: 'Verify',
   stepGlossary: 'Glossary',
   stepTranslate: 'Translate',
 
@@ -60,6 +61,9 @@ export const en = {
 
   generationTitle: 'Generation',
   generationHint: 'These control how the book is split and how many model calls run at once.',
+  generationCost: 'Estimated translation cost',
+  generationCostHint:
+    'An estimate, not a bill. Glossary pass plus translation, priced for {model}.',
   parallelN: 'Parallel threads',
   parallelNHint: 'Each thread translates a contiguous slice sequentially. Default 1.',
   glossaryBatch: 'Chunks per glossary call',
@@ -70,6 +74,11 @@ export const en = {
   back: 'Back',
   continueToSettings: 'Continue to settings',
   buildGlossary: 'Build the glossary',
+  continueToVerify: 'Verify on a sample',
+  verifyNextHint:
+    'Next we translate one chunk so you can tune the guidelines before the whole book is billed.',
+  verifyContinueHint:
+    'The glossary is built automatically, then the whole book is translated.',
   glossaryNextHint:
     'Optional seed rows above are kept. The next pass extracts names from the book; earlier chunks win on conflicts.',
   glossaryReviewIntro:
@@ -110,7 +119,7 @@ export const en = {
   edited: 'edited',
   glossary: 'Glossary',
   glossaryHint:
-    'Names held steady across every chapter. Seed rows you add here win over later extracts. After the glossary pass the list is frozen and sent in full with every chunk.',
+    'Names held steady across every chapter. Seed rows you add here win over later extracts. The glossary pass fills the rest; the full list is sent with every chunk.',
   glossaryAdd: 'Add',
   glossaryPaste: 'Paste a list',
   glossaryPasteHint: 'One pair per line, for example: Alice -> Алиса',
@@ -142,6 +151,8 @@ export const en = {
   statusIdle: 'Ready',
   statusStyle: 'Reading the book',
   statusReview: 'Waiting for your style guidelines',
+  statusVerify: 'Translating a sample chunk',
+  statusVerifyReview: 'Waiting for the guideline check',
   statusTranslating: 'Translating',
   statusPaused: 'Paused',
   statusDone: 'Finished',
@@ -176,6 +187,19 @@ export const en = {
   prev: 'Previous chunk',
   next: 'Next chunk',
   followLive: 'Follow the live chunk',
+
+  verifyChatTitle: 'Guideline verifier',
+  verifyChatHint: 'Say what to change. The agent edits the style sheet and glossary, then retranslates this chunk.',
+  verifyHello:
+    'This is a sample translation of the longest chunk ({n} of {total}). Tell me what to improve — names, register, punctuation — and I will patch the guidelines and retranslate.',
+  verifyPlaceholder: 'What should change in this translation?',
+  verifySend: 'Send',
+  verifyThinking: 'Working…',
+  verifyTranslating: 'Translating',
+  verifyChunk: 'Chunk',
+  verifyToolGuide: 'Updated the style guideline',
+  verifyToolGlossary: 'Updated the glossary',
+  verifyToolTranslate: 'Retranslated the sample',
 
   issuesTitle: '{n} chunks kept their original text.',
   issuesBody: "The model's markdown did not survive validation after three tries.",
@@ -285,8 +309,10 @@ export const en = {
     parsed: 'Parsed “{title}” — {chunks} chunks',
     restored: 'Restored “{title}” at {index}/{chunks}',
     styleReady: 'Style guidelines ready — edit them, then continue.',
+    verifyReady: 'Sample chunk {n} of {total} translated — review it, then the book is translated.',
+    pausedVerify: 'Paused while translating the sample chunk.',
     glossaryChunk: 'Glossary {n}/{total} · chunks {from}–{to}',
-    glossaryReady: 'Glossary ready — {n} entries. Edit them, then translate.',
+    glossaryReady: 'Glossary ready — {n} entries. Translating the book.',
     pausedGlossary: 'Paused while building the glossary.',
     windowStarted: 'Translate window {n}/{total} · chunks {from}–{to}',
     translating: 'Translating {n}/{total} · {chapter}',

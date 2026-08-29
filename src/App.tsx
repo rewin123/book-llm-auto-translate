@@ -24,7 +24,7 @@ import { AppHeader, Stepper, type Step } from './ui/Shell.tsx';
 import { SetupView } from './ui/SetupView.tsx';
 import { SettingsView } from './ui/SettingsView.tsx';
 import { BriefView } from './ui/BriefView.tsx';
-import { GlossaryView } from './ui/GlossaryView.tsx';
+import { VerifyView } from './ui/VerifyView.tsx';
 import { RunView } from './ui/RunView.tsx';
 import { DoneView } from './ui/DoneView.tsx';
 import { ResumeBanner } from './ui/ResumeBanner.tsx';
@@ -153,15 +153,22 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, setup.chunkChars, setup.sourceLang, setup.targetLang]);
 
-  // Keeps the estimate honest when the provider or model changes under it.
+  // Keeps the estimate honest when the provider, model, or generation prefs change.
   useEffect(() => {
+    runner.applyPrefs(settings(), stored);
     void runner.refreshCost(stored);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stored.activeId, activeModel]);
+  }, [stored.activeId, activeModel, setup.concurrency, setup.glossaryBatch]);
 
   useEffect(() => {
     if (snap.styleGuide && !guideDraft) setGuideDraft(snap.styleGuide);
   }, [snap.styleGuide, guideDraft]);
+
+  useEffect(() => {
+    if (snap.phase === 'verify' || snap.phase === 'verifyReview') {
+      setGuideDraft(snap.styleGuide);
+    }
+  }, [snap.styleGuide, snap.phase]);
 
   useEffect(() => {
     if (
@@ -170,11 +177,20 @@ export default function App() {
       snap.phase === 'done' ||
       snap.phase === 'error' ||
       snap.phase === 'glossary' ||
-      snap.phase === 'glossaryReview'
+      snap.phase === 'glossaryReview' ||
+      snap.phase === 'verify' ||
+      snap.phase === 'verifyReview'
     ) {
       setGlossaryDraft(snap.glossary);
     }
   }, [snap.glossary, snap.phase]);
+
+  useEffect(() => {
+    if (snap.phase !== 'glossaryReview' || busy) return;
+    void run(async () => {
+      await runner.runTranslate();
+    });
+  }, [snap.phase, busy, run, runner]);
 
   const running = snap.phase === 'translate' || snap.phase === 'style' || snap.phase === 'glossary';
 
@@ -191,29 +207,33 @@ export default function App() {
         : 'book'
       : snap.phase === 'style' || snap.phase === 'review'
         ? 'brief'
-        : snap.phase === 'glossary' || snap.phase === 'glossaryReview'
-          ? 'glossary'
-          : 'run';
-
-  const trialChunks = useMemo(() => firstChapterLength(snap.chunks), [snap.chunks]);
+        : snap.phase === 'verify' || snap.phase === 'verifyReview'
+          ? 'verify'
+          : snap.phase === 'glossary' || snap.phase === 'glossaryReview'
+            ? 'glossary'
+            : 'run';
 
   const onIndexChange = (i: number, pin: boolean) => {
     setPreviewIndex(i);
     setPinned(pin);
   };
 
-  const startStyle = () => void run(async () => { await runner.runStyle(); });
+  const startStyle = () =>
+    void run(async () => {
+      runner.applyPrefs(settings(), stored);
+      await runner.runStyle();
+    });
+
+  const startVerify = () =>
+    void run(async () => {
+      runner.approveStyle(guideDraft || runner.styleGuide, glossaryDraft);
+      await runner.runVerify();
+    });
 
   const startGlossary = () =>
     void run(async () => {
-      runner.approveStyle(guideDraft || runner.styleGuide, glossaryDraft);
+      runner.approveStyle(runner.styleGuide, runner.glossary);
       await runner.runGlossary();
-    });
-
-  const translate = (limit?: number) =>
-    void run(async () => {
-      runner.approveGlossary(glossaryDraft);
-      await runner.runTranslate({ limit, glossarySnapshot: glossaryDraft });
     });
 
   const resumeJob = () => void run(async () => { await runner.resume(); });
@@ -322,7 +342,7 @@ export default function App() {
               bytes: cp.fileBytes.length,
             });
             runner.restore(cp, stored);
-            if (cp.phase !== 'review' && cp.phase !== 'style' && cp.phase !== 'glossaryReview') {
+            if (cp.phase !== 'review' && cp.phase !== 'style' && cp.phase !== 'verifyReview') {
               resumeJob();
             }
           }}
@@ -336,10 +356,11 @@ export default function App() {
   );
 
   const wide = step === 'run' && snap.phase !== 'done';
+  const verifyLayout = step === 'verify';
 
   return (
     <I18nContext.Provider value={{ locale, t, setLocale }}>
-      <div className={wide ? 'shell shell-wide' : 'shell'}>
+      <div className={wide ? 'shell shell-wide' : verifyLayout ? 'shell shell-verify' : 'shell'}>
         {!wide && (
           <>
             <AppHeader
@@ -391,6 +412,7 @@ export default function App() {
               connection={connection}
               setConnection={setConnection}
               translatedCount={snap.translated.length}
+              cost={snap.cost}
               onBack={() => setSetupStep('book')}
               onContinue={startStyle}
             />
@@ -411,28 +433,34 @@ export default function App() {
             glossary={glossaryDraft}
             setGlossary={setGlossaryDraft}
             busy={busy}
-            onBuildGlossary={startGlossary}
+            onContinue={startVerify}
           />
         )}
 
-        {snap.phase === 'glossary' && (
+        {(snap.phase === 'verify' || snap.phase === 'verifyReview') && (
+          <div style={{ marginTop: 'var(--space-4)' }}>
+            <VerifyView
+              runner={runner}
+              chunks={snap.chunks}
+              verifyIndex={snap.verifyIndex}
+              verifyPair={snap.verifyPair}
+              glossary={snap.glossary}
+              sourceLang={setup.sourceLang}
+              targetLang={setup.targetLang}
+              translating={snap.phase === 'verify'}
+              busy={busy}
+              onChunkChange={(index) => void run(async () => { await runner.runVerify({ index }); })}
+              onContinue={startGlossary}
+            />
+          </div>
+        )}
+
+        {(snap.phase === 'glossary' || snap.phase === 'glossaryReview') && (
           <PhaseLoading
             title={t.statusGlossary}
             hint={fmt(t.glossaryProgress, { n: snap.glossaryIndex, total: Math.max(snap.glossaryTotal, 1) })}
             onPause={() => runner.pause()}
             events={snap.events}
-          />
-        )}
-
-        {snap.phase === 'glossaryReview' && (
-          <GlossaryView
-            chunks={snap.chunks}
-            glossary={glossaryDraft}
-            setGlossary={setGlossaryDraft}
-            cost={snap.cost}
-            busy={busy}
-            firstChapterChunks={trialChunks}
-            onTranslate={(n) => translate(n >= snap.chunks.length ? undefined : n)}
           />
         )}
 
@@ -525,18 +553,6 @@ function countChapters(chunks: Chunk[]): number {
       n += 1;
       last = key;
     }
-  }
-  return n;
-}
-
-/** Trial runs stop at the end of the first chapter. */
-function firstChapterLength(chunks: Chunk[]): number {
-  if (chunks.length === 0) return 0;
-  const first = `${chunks[0]!.documentPath}::${chunks[0]!.chapterTitle}`;
-  let n = 0;
-  for (const c of chunks) {
-    if (`${c.documentPath}::${c.chapterTitle}` !== first) break;
-    n += 1;
   }
   return n;
 }

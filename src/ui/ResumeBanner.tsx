@@ -16,7 +16,9 @@ export function ResumeBanner(props: {
   const state =
     cp.phase === 'review' || cp.phase === 'style'
       ? t.statusReview
-      : cp.phase === 'glossary' || cp.phase === 'glossaryReview'
+      : cp.phase === 'verify' || cp.phase === 'verifyReview'
+        ? t.statusVerifyReview
+        : cp.phase === 'glossary' || cp.phase === 'glossaryReview'
         ? t.statusGlossary
         : t.statusPaused;
 

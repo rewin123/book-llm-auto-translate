@@ -7,6 +7,8 @@ export type JobPhase =
   | 'idle'
   | 'style'
   | 'review'
+  | 'verify'
+  | 'verifyReview'
   | 'glossary'
   | 'glossaryReview'
   | 'translate'
@@ -74,7 +76,9 @@ export type LogKey =
   | 'glossaryChunk'
   | 'glossaryReady'
   | 'pausedGlossary'
-  | 'windowStarted';
+  | 'windowStarted'
+  | 'verifyReady'
+  | 'pausedVerify';
 
 export type JobEvent = {
   ts: number;
@@ -126,7 +130,10 @@ export type Checkpoint = {
   elapsedMs?: number;
   savedAt?: number;
   /** Which pass to continue after a pause. */
-  pausedDuring?: 'style' | 'glossary' | 'translate';
+  pausedDuring?: 'style' | 'glossary' | 'translate' | 'verify';
+  /** Sample chunk under review on the Guideline Verifier step. */
+  verifyIndex?: number;
+  verifyPair?: TranslatedPair;
 };
 
 export type JobRunnerOptions = {

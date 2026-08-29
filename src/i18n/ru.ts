@@ -13,6 +13,7 @@ export const ru: Messages = {
   stepBook: 'Книга',
   stepSettings: 'Настройки',
   stepStyle: 'Стиль',
+  stepVerify: 'Проверка',
   stepGlossary: 'Глоссарий',
   stepTranslate: 'Перевод',
 
@@ -62,6 +63,8 @@ export const ru: Messages = {
 
   generationTitle: 'Генерация',
   generationHint: 'Как режется книга и сколько запросов к модели идёт одновременно.',
+  generationCost: 'Оценка стоимости перевода',
+  generationCostHint: 'Оценка, не счёт. Глоссарий и перевод по тарифу {model}.',
   parallelN: 'Параллельные потоки',
   parallelNHint: 'Каждый поток переводит свой отрезок последовательно. По умолчанию 1.',
   glossaryBatch: 'Чанков за раз в глоссарии',
@@ -72,6 +75,11 @@ export const ru: Messages = {
   back: 'Назад',
   continueToSettings: 'Перейти к настройкам',
   buildGlossary: 'Собрать глоссарий',
+  continueToVerify: 'Проверить на фрагменте',
+  verifyNextHint:
+    'Дальше переведём один фрагмент — можно поправить гайд до полной книги.',
+  verifyContinueHint:
+    'Глоссарий соберётся сам, затем переведём всю книгу.',
   glossaryNextHint:
     'Строки выше — посев: они важнее поздних извлечений. Следующий проход вытащит имена из книги; при конфликте побеждает более ранний чанк.',
   glossaryReviewIntro:
@@ -112,7 +120,7 @@ export const ru: Messages = {
   edited: 'изменено',
   glossary: 'Глоссарий',
   glossaryHint:
-    'Имена, единые для всех глав. Посевные строки важнее поздних извлечений. После прохода глоссария список заморожен и целиком уходит в каждый чанк.',
+    'Имена, единые для всех глав. Посевные строки важнее поздних извлечений. Проход глоссария дополнит список; целиком он уходит в каждый чанк.',
   glossaryAdd: 'Добавить',
   glossaryPaste: 'Вставить списком',
   glossaryPasteHint: 'По паре в строке, например: Alice -> Алиса',
@@ -144,6 +152,8 @@ export const ru: Messages = {
   statusIdle: 'Готово к запуску',
   statusStyle: 'Читаем книгу',
   statusReview: 'Ждём стилевые указания',
+  statusVerify: 'Переводим пробный фрагмент',
+  statusVerifyReview: 'Ждём проверку гайда',
   statusTranslating: 'Переводим',
   statusPaused: 'Пауза',
   statusDone: 'Готово',
@@ -178,6 +188,19 @@ export const ru: Messages = {
   prev: 'Предыдущий фрагмент',
   next: 'Следующий фрагмент',
   followLive: 'Следить за текущим фрагментом',
+
+  verifyChatTitle: 'Проверка гайда',
+  verifyChatHint: 'Напишите, что поменять. Агент правит стилевой лист и глоссарий, затем заново переводит этот фрагмент.',
+  verifyHello:
+    'Это пробный перевод самого длинного фрагмента ({n} из {total}). Напишите, что улучшить — имена, регистр, пунктуацию — я поправлю гайд и переведу снова.',
+  verifyPlaceholder: 'Что изменить в этом переводе?',
+  verifySend: 'Отправить',
+  verifyThinking: 'Думаю…',
+  verifyTranslating: 'Переводим',
+  verifyChunk: 'Фрагмент',
+  verifyToolGuide: 'Обновлены стилевые указания',
+  verifyToolGlossary: 'Обновлён глоссарий',
+  verifyToolTranslate: 'Пробный фрагмент переведён заново',
 
   issuesTitle: 'Фрагментов осталось на языке оригинала: {n}.',
   issuesBody: 'Markdown от модели не прошёл проверку после трёх попыток.',
@@ -285,8 +308,10 @@ export const ru: Messages = {
     parsed: '«{title}» разобрана — фрагментов: {chunks}',
     restored: '«{title}» восстановлена на {index}/{chunks}',
     styleReady: 'Стилевые указания готовы — поправьте их и продолжайте.',
+    verifyReady: 'Пробный фрагмент {n} из {total} переведён — проверьте, затем пойдёт книга.',
+    pausedVerify: 'Пауза во время перевода пробного фрагмента.',
     glossaryChunk: 'Глоссарий {n}/{total} · чанки {from}–{to}',
-    glossaryReady: 'Глоссарий готов — записей: {n}. Поправьте и переводите.',
+    glossaryReady: 'Глоссарий готов — записей: {n}. Переводим книгу.',
     pausedGlossary: 'Пауза во время сборки глоссария.',
     windowStarted: 'Окно перевода {n}/{total} · чанки {from}–{to}',
     translating: 'Переводим {n}/{total} · {chapter}',

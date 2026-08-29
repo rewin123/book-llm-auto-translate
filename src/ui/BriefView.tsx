@@ -18,7 +18,7 @@ type Props = {
   glossary: GlossaryEntry[];
   setGlossary: (next: GlossaryEntry[]) => void;
   busy: boolean;
-  onBuildGlossary: () => void;
+  onContinue: () => void;
 };
 
 export function BriefView(props: Props) {
@@ -152,16 +152,16 @@ export function BriefView(props: Props) {
           }}
         >
           <p className="hint" style={{ margin: 0, maxWidth: '40rem' }}>
-            {t.glossaryNextHint}
+            {t.verifyNextHint}
           </p>
           <button
             className="btn btn-primary"
             type="button"
             disabled={props.busy || props.chunks.length === 0}
-            onClick={props.onBuildGlossary}
+            onClick={props.onContinue}
             style={{ padding: '12px 20px' }}
           >
-            {t.buildGlossary}
+            {t.continueToVerify}
             <ArrowRight />
           </button>
         </div>

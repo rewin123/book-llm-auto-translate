@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeGlossary } from '../../src/glossary/index.ts';
+import { mergeGlossary, upsertGlossary } from '../../src/glossary/index.ts';
 import { translateUserPrompt } from '../../src/llm/prompts.ts';
 
 describe('glossary', () => {
@@ -24,6 +24,15 @@ describe('glossary', () => {
       { src: 'Alice', dst: 'Алиса' },
       { src: 'Dinah', dst: 'Дина' },
     ]);
+  });
+
+  it('overwrites an existing source form', () => {
+    const next = upsertGlossary(
+      [{ src: 'Alice', dst: 'Алиса' }],
+      'Alice',
+      'Алисия',
+    );
+    expect(next).toEqual([{ src: 'Alice', dst: 'Алисия' }]);
   });
 
   it('puts every glossary row in the translate prompt, including names absent from the chunk', () => {

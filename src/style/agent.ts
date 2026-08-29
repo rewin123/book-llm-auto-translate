@@ -69,6 +69,8 @@ export async function runStyleAgent(opts: {
       generateText({
         model,
         abortSignal: opts.abortSignal,
+        timeout: { stepMs: 180_000, toolMs: 180_000 },
+        maxRetries: 1,
         instructions: styleAgentSystemPrompt({
           sourceLang: opts.sourceLang,
           targetLang: opts.targetLang,

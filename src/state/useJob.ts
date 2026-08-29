@@ -21,6 +21,8 @@ const EMPTY: JobSnapshot = {
   glossaryIndex: 0,
   glossaryTotal: 0,
   liveIndex: 0,
+  verifyIndex: 0,
+  verifyPair: null,
 };
 
 /**

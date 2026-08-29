@@ -15,6 +15,20 @@ export function mergeGlossary(
   return [...map.entries()].map(([src, dst]) => ({ src, dst }));
 }
 
+/** Insert or overwrite by source form. Empty sides are ignored. */
+export function upsertGlossary(
+  current: GlossaryEntry[],
+  src: string,
+  dst: string,
+): GlossaryEntry[] {
+  const s = src.trim();
+  const d = dst.trim();
+  if (!s || !d) return current;
+  const map = new Map(current.map((e) => [e.src, e.dst]));
+  map.set(s, d);
+  return [...map.entries()].map(([key, value]) => ({ src: key, dst: value }));
+}
+
 /** Parse a model JSON object `{ "Alice": "Алиса", ... }` (fences and chatter allowed). */
 export function parseGlossaryJson(text: string): GlossaryEntry[] {
   const obj = extractJsonObject(text);

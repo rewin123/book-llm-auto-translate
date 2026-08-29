@@ -2,10 +2,12 @@ import { packBook, parseBook } from '../ebook/index.ts';
 import type { Chunk, PackedBook, ParsedBook } from '../ebook/types.ts';
 import { extractGlossaryNode, lastTwoFor } from '../graph/glossary.ts';
 import { translateChunkNode } from '../graph/nodes.ts';
-import { mergeGlossary, type GlossaryEntry } from '../glossary/index.ts';
+import { mergeGlossary, upsertGlossary, type GlossaryEntry } from '../glossary/index.ts';
 import { createLlmClient } from '../llm/index.ts';
 import type { StoredProviders } from '../llm/presets.ts';
 import { runStyleAgent } from '../style/agent.ts';
+import { longestChunkIndex } from '../verify/chunk.ts';
+import { editStyleGuideline } from '../verify/guide.ts';
 import { classifyFailure, isAbortError, type RetryHandler } from '../llm/net.ts';
 import {
   DEFAULT_CONCURRENCY,
@@ -48,6 +50,8 @@ export type JobSnapshot = {
   glossaryIndex: number;
   glossaryTotal: number;
   liveIndex: number;
+  verifyIndex: number;
+  verifyPair: TranslatedPair | null;
 };
 
 export type RunnerListener = (s: JobSnapshot) => void;
@@ -75,7 +79,9 @@ export class JobRunner {
   reviewBatch = DEFAULT_REVIEW_BATCH;
   glossaryIndex = 0;
   glossaryTotal = 0;
-  pausedDuring: 'style' | 'glossary' | 'translate' | null = null;
+  verifyIndex = 0;
+  verifyPair: TranslatedPair | null = null;
+  pausedDuring: 'style' | 'glossary' | 'translate' | 'verify' | null = null;
   private persistChain: Promise<void> = Promise.resolve();
 
   listener: RunnerListener;
@@ -126,6 +132,8 @@ export class JobRunner {
       glossaryIndex: this.glossaryIndex,
       glossaryTotal: this.glossaryTotal,
       liveIndex: this.liveIndex,
+      verifyIndex: this.verifyIndex,
+      verifyPair: this.verifyPair,
     });
   }
 
@@ -168,6 +176,8 @@ export class JobRunner {
       elapsedMs: this.elapsedMs,
       savedAt: Date.now(),
       pausedDuring: this.pausedDuring ?? undefined,
+      verifyIndex: this.verifyIndex,
+      verifyPair: this.verifyPair ?? undefined,
     };
     this.persistChain = this.persistChain.then(
       () => this.writeCheckpoint(cp),
@@ -204,6 +214,8 @@ export class JobRunner {
       this.phase === 'review' ||
       this.phase === 'glossary' ||
       this.phase === 'glossaryReview' ||
+      this.phase === 'verify' ||
+      this.phase === 'verifyReview' ||
       this.phase === 'translate'
     ) {
       return;
@@ -229,6 +241,8 @@ export class JobRunner {
     this.failure = null;
     this.trialLimit = null;
     this.elapsedMs = 0;
+    this.verifyIndex = 0;
+    this.verifyPair = null;
     this.phase = 'idle';
     this.log('info', 'parsed', {
       title: this.book.title,
@@ -238,7 +252,20 @@ export class JobRunner {
     void this.refreshCost();
   }
 
-  /** Re-priced whenever the provider or model changes, so the number is never stale. */
+  /**
+   * Push the settings form into an idle parsed job without re-reading the file.
+   * Concurrency and glossary batch would otherwise stay at whatever prepare() saw.
+   */
+  applyPrefs(settings: JobSettings, stored: StoredProviders) {
+    if (this.phase !== 'idle') return;
+    this.settings = settings;
+    this.stored = stored;
+    this.concurrency = settings.concurrency || DEFAULT_CONCURRENCY;
+    this.glossaryBatch = settings.glossaryBatch || DEFAULT_GLOSSARY_BATCH;
+    this.reviewBatch = settings.reviewBatch || DEFAULT_REVIEW_BATCH;
+  }
+
+  /** Re-priced whenever the provider, model, or generation prefs change. */
   async refreshCost(stored?: StoredProviders) {
     if (stored) this.stored = stored;
     if (!this.book || !this.stored || !this.settings) return;
@@ -290,8 +317,24 @@ export class JobRunner {
     this.failure = null;
     this.trialLimit = null;
     this.packed = null;
-    this.pausedDuring = cp.pausedDuring ?? (cp.phase === 'glossary' ? 'glossary' : cp.phase === 'style' ? 'style' : 'translate');
-    this.phase = cp.phase === 'translate' || cp.phase === 'glossary' || cp.phase === 'style' ? 'paused' : cp.phase;
+    this.verifyIndex = cp.verifyIndex ?? longestChunkIndex(this.book.chunks);
+    this.verifyPair = cp.verifyPair ?? null;
+    this.pausedDuring =
+      cp.pausedDuring ??
+      (cp.phase === 'glossary'
+        ? 'glossary'
+        : cp.phase === 'style'
+          ? 'style'
+          : cp.phase === 'verify' || cp.phase === 'verifyReview'
+            ? 'verify'
+            : 'translate');
+    this.phase =
+      cp.phase === 'translate' ||
+      cp.phase === 'glossary' ||
+      cp.phase === 'style' ||
+      cp.phase === 'verify'
+        ? 'paused'
+        : cp.phase;
     this.log('info', 'restored', {
       title: cp.title,
       index: cp.index,
@@ -319,6 +362,8 @@ export class JobRunner {
     this.trialLimit = null;
     this.elapsedMs = 0;
     this.pausedDuring = null;
+    this.verifyIndex = 0;
+    this.verifyPair = null;
     this.emit();
   }
 
@@ -358,21 +403,108 @@ export class JobRunner {
       this.glossarySeed = glossary.filter((e) => e.src.trim() && e.dst.trim());
       this.glossary = mergeGlossary([], this.glossarySeed);
     }
-    this.phase = 'review';
+    if (this.phase === 'style') this.phase = 'review';
     void this.persist();
     this.emit();
   }
 
   async resume() {
     if (this.pausedDuring === 'style' || !this.styleGuide) return this.runStyle();
+    if (this.pausedDuring === 'verify') return this.runVerify({ index: this.verifyIndex });
+    if (this.phase === 'glossaryReview') return this.runTranslate();
     if (this.pausedDuring === 'glossary') return this.runGlossary();
     return this.runTranslate();
   }
 
-  approveGlossary(glossary: GlossaryEntry[]) {
-    this.glossary = glossary.filter((e) => e.src.trim() && e.dst.trim());
-    this.phase = 'glossaryReview';
+  async runVerify(opts?: { index?: number }) {
+    if (!this.book || !this.settings || !this.stored) return;
+    const chunks = this.book.chunks;
+    const index =
+      opts?.index != null
+        ? Math.min(Math.max(Math.floor(opts.index), 0), Math.max(chunks.length - 1, 0))
+        : longestChunkIndex(chunks);
+    this.verifyIndex = index;
+    this.verifyPair = null;
+    this.abort = new AbortController();
+    this.phase = 'verify';
+    this.pausedDuring = 'verify';
+    this.failure = null;
+    this.emit();
+    try {
+      await this.translateVerifyChunk(this.abort.signal);
+      this.phase = 'verifyReview';
+      this.log('info', 'verifyReady', { n: index + 1, total: chunks.length });
+      await this.persist();
+    } catch (err) {
+      await this.handleFailure(err, 'pausedVerify');
+    }
+  }
+
+  patchVerifyGuide(oldStr: string, newStr: string): string {
+    const result = editStyleGuideline(this.styleGuide, oldStr, newStr);
+    if (!result.ok) return result.error;
+    this.styleGuide = result.guide;
     void this.persist();
+    this.emit();
+    return 'Style guideline updated.';
+  }
+
+  upsertVerifyGlossary(src: string, dst: string): string {
+    const s = src.trim();
+    const d = dst.trim();
+    if (!s || !d) return 'Ignored empty glossary row.';
+    this.glossary = upsertGlossary(this.glossary, s, d);
+    this.glossarySeed = upsertGlossary(this.glossarySeed, s, d);
+    void this.persist();
+    this.emit();
+    return `Glossary: ${s} → ${d}`;
+  }
+
+  async retranslateVerify(): Promise<{ original: string; translate: string }> {
+    if (!this.book || !this.settings || !this.stored) {
+      return { original: '', translate: '' };
+    }
+    if (!this.abort || this.abort.signal.aborted) this.abort = new AbortController();
+    await this.translateVerifyChunk(this.abort.signal);
+    await this.persist();
+    const pair = this.verifyPair;
+    return {
+      original: pair?.original ?? '',
+      translate: pair?.translation ?? '',
+    };
+  }
+
+  private async translateVerifyChunk(signal: AbortSignal) {
+    if (!this.book || !this.settings || !this.stored) return;
+    const chunk = this.book.chunks[this.verifyIndex];
+    if (!chunk) return;
+    const client = createLlmClient(this.stored, (info) => this.logRetry(info));
+    const originalMarkdown = chunk.markdown;
+    this.log('info', 'translating', {
+      n: this.verifyIndex + 1,
+      total: this.book.chunks.length,
+      chapter: chunk.chapterTitle,
+    });
+    const started = Date.now();
+    const result = await translateChunkNode({
+      client,
+      chunk: { ...chunk, markdown: originalMarkdown },
+      sourceLang: this.settings.sourceLang,
+      targetLang: this.settings.targetLang,
+      styleGuide: this.styleGuide,
+      glossary: this.glossary,
+      lastTwo: [],
+      abortSignal: signal,
+    });
+    this.verifyPair = {
+      index: this.verifyIndex,
+      original: originalMarkdown,
+      translation: result.markdown,
+      usedOriginal: result.usedOriginal,
+      reason: result.reason,
+      ms: Date.now() - started,
+      llmCalls: result.llmCalls,
+    };
     this.emit();
   }
 
@@ -426,9 +558,9 @@ export class JobRunner {
         this.emit();
       }
       this.rebuildGlossary();
-      this.phase = 'glossaryReview';
       this.log('style', 'glossaryReady', { n: this.glossary.length });
       await this.persist();
+      await this.runTranslate();
     } catch (err) {
       await this.handleFailure(err, 'pausedGlossary');
     }
@@ -439,6 +571,7 @@ export class JobRunner {
       this.logRaw('error', 'Nothing to translate — no book is loaded.');
       return;
     }
+    if (this.phase === 'translate' && this.abort && !this.abort.signal.aborted) return;
     const concurrency = opts?.concurrency ?? this.concurrency;
     if (opts?.glossarySnapshot) this.glossary = opts.glossarySnapshot;
     const total = this.book.chunks.length;

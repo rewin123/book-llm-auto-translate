@@ -7,10 +7,10 @@ import {
   DEFAULT_GLOSSARY_BATCH,
   DEFAULT_REVIEW_BATCH,
   MAX_BATCH,
-  MAX_CONCURRENCY,
   type SetupPrefs,
 } from '../storage/setup.ts';
-import { fmt, languageName, useT } from '../i18n/index.ts';
+import type { CostEstimate } from '../job/types.ts';
+import { approxUsd, fmt, languageName, useT } from '../i18n/index.ts';
 import { ArrowRight, CheckIcon, ChevronRight, CrossIcon, InfoIcon, SwapIcon } from './icons.tsx';
 import { ModelPicker } from './ModelPicker.tsx';
 
@@ -26,6 +26,7 @@ type Props = {
   connection: ConnectionResult | null;
   setConnection: (r: ConnectionResult | null) => void;
   translatedCount: number;
+  cost: CostEstimate | null;
   onContinue: () => void;
   onBack: () => void;
 };
@@ -116,7 +117,6 @@ export function SettingsView(props: Props) {
               id="parallel-n"
               type="number"
               min={1}
-              max={MAX_CONCURRENCY}
               step={1}
               value={setup.concurrency}
               onChange={(e) =>
@@ -212,6 +212,40 @@ export function SettingsView(props: Props) {
             </div>
           </div>
         )}
+
+        <div
+          style={{
+            marginTop: 'var(--space-4)',
+            paddingTop: 'var(--space-4)',
+            borderTop: '1px solid var(--line)',
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            gap: 'var(--space-6)',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div>
+            <p className="hint" style={{ margin: 0 }}>
+              {t.generationCost}
+            </p>
+            <p
+              style={{
+                margin: '4px 0 0',
+                fontFamily: "'Source Serif 4', Georgia, serif",
+                fontSize: '1.45rem',
+                fontWeight: 600,
+              }}
+            >
+              {props.cost ? approxUsd(props.cost.usd, t) : '—'}
+            </p>
+          </div>
+          <p className="hint" style={{ margin: 0, maxWidth: '36rem' }}>
+            {fmt(t.generationCostHint, {
+              model: props.cost?.model || stored.models[preset.id] || preset.defaultModel,
+            })}
+          </p>
+        </div>
       </div>
 
       <details className="disclosure">
