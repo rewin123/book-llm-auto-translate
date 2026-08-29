@@ -5,8 +5,8 @@ Zero-install book translator: everything runs in the browser. No backend.
 ## Layout
 
 - `src/ebook/` — parse EPUB/FB2 to markdown (incl. windows-1251 FB2), chunk, validate, pack a new EPUB
-- `src/job/` — `JobRunner` (sequential, `concurrency` reserved), IndexedDB checkpoint, abort, cost estimate
-- `src/graph/` — translate node (style guide + glossary + last two chunks)
+- `src/job/` — `JobRunner` (style → glossary → parallel translate windows), IndexedDB checkpoint, abort, cost estimate
+- `src/graph/` — glossary extract node + translate node (frozen glossary + last two chunks)
 - `src/style/` — style agent with `read_chunk`
 - `src/llm/` — BYOK providers, mock LLM, models.dev prices, prompts
 - `src/glossary/` — name map merge/filter
@@ -30,4 +30,4 @@ npm run dev
 
 - Do not add a server. Keys stay in `booktrans.v1.*` localStorage.
 - Do not splice translated markup back into the original EPUB. Convert to markdown, translate, then build a new EPUB.
-- RAG and parallel windows are post-v1 (`JobRunner` already accepts `concurrency`).
+- Parallel translate windows are contiguous slices (`ceil(chunks / concurrency)`). The glossary is frozen before translation.

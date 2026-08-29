@@ -4,7 +4,8 @@ import type { Chunk } from '../ebook/types.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { withNetworkRetry, type RetryHandler } from '../llm/net.ts';
 import { createSdkModel } from '../llm/openai.ts';
-import { styleAgentSystemPrompt } from '../llm/prompts.ts';
+import { formatChapterList } from '../ebook/chapters.ts';
+import { styleAgentSystemPrompt, styleAgentUserPrompt } from '../llm/prompts.ts';
 import type { StoredProviders } from '../llm/presets.ts';
 import type { JobEvent } from '../job/types.ts';
 
@@ -68,12 +69,17 @@ export async function runStyleAgent(opts: {
       generateText({
         model,
         abortSignal: opts.abortSignal,
+        timeout: { stepMs: 180_000, toolMs: 180_000 },
+        maxRetries: 1,
         instructions: styleAgentSystemPrompt({
           sourceLang: opts.sourceLang,
           targetLang: opts.targetLang,
           totalChunks: total,
         }),
-        prompt: `Write the style sheet for this book. total_chunks=${total}. Use read_chunk.`,
+        prompt: styleAgentUserPrompt({
+          totalChunks: total,
+          chapterList: formatChapterList(opts.chunks),
+        }),
         tools: {
           read_chunk: tool({
             description: 'Read source markdown for chunk idx (0-based). Not a translation.',

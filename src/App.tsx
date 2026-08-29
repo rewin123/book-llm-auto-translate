@@ -9,12 +9,22 @@ import type { GlossaryEntry } from './glossary/index.ts';
 import { CORS_OPENROUTER_FALLBACK, PROVIDER_PRESETS, type StoredProviders } from './llm/presets.ts';
 import type { ConnectionResult } from './llm/testConnection.ts';
 import { loadProviders, saveProviders } from './storage/providers.ts';
-import { loadSetup, saveSetup, type SetupPrefs } from './storage/setup.ts';
+import {
+  clampBatch,
+  clampConcurrency,
+  DEFAULT_GLOSSARY_BATCH,
+  DEFAULT_REVIEW_BATCH,
+  loadSetup,
+  saveSetup,
+  type SetupPrefs,
+} from './storage/setup.ts';
 import { detectLocale, detectTheme, persistLocale, persistTheme, type Locale, type Theme } from './storage/prefs.ts';
 import { useJob } from './state/useJob.ts';
 import { AppHeader, Stepper, type Step } from './ui/Shell.tsx';
 import { SetupView } from './ui/SetupView.tsx';
+import { SettingsView } from './ui/SettingsView.tsx';
 import { BriefView } from './ui/BriefView.tsx';
+import { VerifyView } from './ui/VerifyView.tsx';
 import { RunView } from './ui/RunView.tsx';
 import { DoneView } from './ui/DoneView.tsx';
 import { ResumeBanner } from './ui/ResumeBanner.tsx';
@@ -44,6 +54,7 @@ export default function App() {
   const [glossaryDraft, setGlossaryDraft] = useState<GlossaryEntry[]>([]);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [pinned, setPinned] = useState(false);
+  const [setupStep, setSetupStep] = useState<'book' | 'settings'>('book');
   const [online, setOnline] = useState(
     () => typeof navigator === 'undefined' || navigator.onLine !== false,
   );
@@ -63,7 +74,9 @@ export default function App() {
       logLimit: setup.logLimit,
       providerId: stored.activeId,
       model: activeModel,
-      concurrency: 1,
+      concurrency: clampConcurrency(setup.concurrency),
+      glossaryBatch: clampBatch(setup.glossaryBatch, DEFAULT_GLOSSARY_BATCH),
+      reviewBatch: clampBatch(setup.reviewBatch, DEFAULT_REVIEW_BATCH),
     }),
     [setup, stored.activeId, activeModel],
   );
@@ -140,53 +153,90 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, setup.chunkChars, setup.sourceLang, setup.targetLang]);
 
-  // Keeps the estimate honest when the provider or model changes under it.
+  // Keeps the estimate honest when the provider, model, or generation prefs change.
   useEffect(() => {
+    runner.applyPrefs(settings(), stored);
     void runner.refreshCost(stored);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stored.activeId, activeModel]);
+  }, [stored.activeId, activeModel, setup.concurrency, setup.glossaryBatch]);
 
   useEffect(() => {
     if (snap.styleGuide && !guideDraft) setGuideDraft(snap.styleGuide);
   }, [snap.styleGuide, guideDraft]);
 
   useEffect(() => {
-    if (snap.phase === 'translate' || snap.phase === 'paused' || snap.phase === 'done' || snap.phase === 'error') {
+    if (snap.phase === 'verify' || snap.phase === 'verifyReview') {
+      setGuideDraft(snap.styleGuide);
+    }
+  }, [snap.styleGuide, snap.phase]);
+
+  useEffect(() => {
+    if (
+      snap.phase === 'translate' ||
+      snap.phase === 'paused' ||
+      snap.phase === 'done' ||
+      snap.phase === 'error' ||
+      snap.phase === 'glossary' ||
+      snap.phase === 'glossaryReview' ||
+      snap.phase === 'verify' ||
+      snap.phase === 'verifyReview'
+    ) {
       setGlossaryDraft(snap.glossary);
     }
   }, [snap.glossary, snap.phase]);
 
-  const running = snap.phase === 'translate' || snap.phase === 'style';
+  useEffect(() => {
+    if (snap.phase !== 'glossaryReview' || busy) return;
+    void run(async () => {
+      await runner.runTranslate();
+    });
+  }, [snap.phase, busy, run, runner]);
+
+  const running = snap.phase === 'translate' || snap.phase === 'style' || snap.phase === 'glossary';
 
   useEffect(() => {
-    if (!pinned && running && snap.index > 0) {
-      setPreviewIndex(Math.min(snap.index - 1, Math.max(snap.chunks.length - 1, 0)));
+    if (!pinned && running && snap.translated.length > 0) {
+      setPreviewIndex(Math.min(snap.liveIndex, Math.max(snap.chunks.length - 1, 0)));
     }
-  }, [pinned, running, snap.index, snap.chunks.length]);
+  }, [pinned, running, snap.liveIndex, snap.translated.length, snap.chunks.length]);
 
   const step: Step =
-    snap.phase === 'idle' ? 'setup' : snap.phase === 'style' || snap.phase === 'review' ? 'brief' : 'run';
-
-  const trialChunks = useMemo(() => firstChapterLength(snap.chunks), [snap.chunks]);
+    snap.phase === 'idle'
+      ? setupStep === 'settings' && book
+        ? 'settings'
+        : 'book'
+      : snap.phase === 'style' || snap.phase === 'review'
+        ? 'brief'
+        : snap.phase === 'verify' || snap.phase === 'verifyReview'
+          ? 'verify'
+          : snap.phase === 'glossary' || snap.phase === 'glossaryReview'
+            ? 'glossary'
+            : 'run';
 
   const onIndexChange = (i: number, pin: boolean) => {
     setPreviewIndex(i);
     setPinned(pin);
   };
 
-  const startStyle = () => void run(async () => { await runner.runStyle(); });
+  const startStyle = () =>
+    void run(async () => {
+      runner.applyPrefs(settings(), stored);
+      await runner.runStyle();
+    });
 
-  const translate = (limit?: number) =>
+  const startVerify = () =>
     void run(async () => {
       runner.approveStyle(guideDraft || runner.styleGuide, glossaryDraft);
-      await runner.runTranslate({ limit, glossarySnapshot: glossaryDraft });
+      await runner.runVerify();
     });
 
-  const resumeJob = () =>
+  const startGlossary = () =>
     void run(async () => {
-      if (!runner.styleGuide) await runner.runStyle();
-      else await runner.runTranslate();
+      runner.approveStyle(runner.styleGuide, runner.glossary);
+      await runner.runGlossary();
     });
+
+  const resumeJob = () => void run(async () => { await runner.resume(); });
 
   const download = async () => {
     const packed = snap.packed ?? (await runner.pack());
@@ -226,6 +276,7 @@ export default function App() {
     setGlossaryDraft([]);
     setPreviewIndex(0);
     setPinned(false);
+    setSetupStep('book');
   };
 
   const fixSettings = (target: 'model' | 'advanced' | 'cors') => {
@@ -241,6 +292,7 @@ export default function App() {
     }
     runner.reset();
     setPending(null);
+    setSetupStep('settings');
     requestAnimationFrame(() => {
       settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       if (target === 'advanced') {
@@ -273,9 +325,14 @@ export default function App() {
               ...s,
               sourceLang: cp.settings.sourceLang,
               targetLang: cp.settings.targetLang,
+              chunkChars: cp.settings.chunkChars ?? s.chunkChars,
+              concurrency: cp.settings.concurrency ?? s.concurrency,
+              glossaryBatch: cp.settings.glossaryBatch ?? s.glossaryBatch,
+              reviewBatch: cp.settings.reviewBatch ?? s.reviewBatch,
             }));
             setGuideDraft(cp.styleGuide);
             setGlossaryDraft(cp.glossary);
+            setSetupStep('settings');
             setBook({
               fileName: cp.fileName,
               title: cp.title,
@@ -285,7 +342,9 @@ export default function App() {
               bytes: cp.fileBytes.length,
             });
             runner.restore(cp, stored);
-            if (cp.phase !== 'review' && cp.phase !== 'style') resumeJob();
+            if (cp.phase !== 'review' && cp.phase !== 'style' && cp.phase !== 'verifyReview') {
+              resumeJob();
+            }
           }}
           onDiscard={() => {
             void clearCheckpoint();
@@ -297,10 +356,11 @@ export default function App() {
   );
 
   const wide = step === 'run' && snap.phase !== 'done';
+  const verifyLayout = step === 'verify';
 
   return (
     <I18nContext.Provider value={{ locale, t, setLocale }}>
-      <div className={wide ? 'shell shell-wide' : 'shell'}>
+      <div className={wide ? 'shell shell-wide' : verifyLayout ? 'shell shell-verify' : 'shell'}>
         {!wide && (
           <>
             <AppHeader
@@ -308,7 +368,7 @@ export default function App() {
               setLocale={setLocale}
               theme={theme}
               setTheme={setTheme}
-              compact={step !== 'setup'}
+              compact={step !== 'book'}
             />
             <Stepper current={step} />
           </>
@@ -316,19 +376,12 @@ export default function App() {
 
         {!wide && <div className="stack">{banners}</div>}
 
-        {snap.phase === 'idle' && (
-          <div ref={settingsRef} style={{ marginTop: 'var(--space-4)' }}>
+        {snap.phase === 'idle' && setupStep === 'book' && (
+          <div style={{ marginTop: 'var(--space-4)' }}>
             <SetupView
               book={book}
               parsing={parsing}
               parseError={parseError}
-              setup={setup}
-              setSetup={(fn) => setSetupState(fn)}
-              stored={stored}
-              setStored={(fn) => setStoredState(fn)}
-              connection={connection}
-              setConnection={setConnection}
-              translatedCount={snap.translated.length}
               onFile={(f) => setFile(f)}
               onDemo={() => {
                 void buildDemoEpub().then((bytes) => {
@@ -338,12 +391,37 @@ export default function App() {
                 });
               }}
               onClearError={() => setParseError(null)}
+              onContinue={() => setSetupStep('settings')}
+            />
+          </div>
+        )}
+
+        {snap.phase === 'idle' && setupStep === 'settings' && (
+          <div ref={settingsRef} style={{ marginTop: 'var(--space-4)' }}>
+            <SettingsView
+              bookLabel={
+                book
+                  ? fmt(t.readyBook, { chunks: book.chunks, chapters: book.chapters })
+                  : null
+              }
+              parsing={parsing}
+              setup={setup}
+              setSetup={(fn) => setSetupState(fn)}
+              stored={stored}
+              setStored={(fn) => setStoredState(fn)}
+              connection={connection}
+              setConnection={setConnection}
+              translatedCount={snap.translated.length}
+              cost={snap.cost}
+              onBack={() => setSetupStep('book')}
               onContinue={startStyle}
             />
           </div>
         )}
 
-        {snap.phase === 'style' && <StyleLoading onPause={() => runner.pause()} events={snap.events} />}
+        {snap.phase === 'style' && (
+          <PhaseLoading title={t.statusStyle} hint={fmt(t.sampledHint, { n: countReads(snap.events) })} onPause={() => runner.pause()} events={snap.events} />
+        )}
 
         {snap.phase === 'review' && (
           <BriefView
@@ -354,10 +432,35 @@ export default function App() {
             defaultGuide={snap.styleGuide}
             glossary={glossaryDraft}
             setGlossary={setGlossaryDraft}
-            cost={snap.cost}
             busy={busy}
-            firstChapterChunks={trialChunks}
-            onTranslate={(n) => translate(n >= snap.chunks.length ? undefined : n)}
+            onContinue={startVerify}
+          />
+        )}
+
+        {(snap.phase === 'verify' || snap.phase === 'verifyReview') && (
+          <div style={{ marginTop: 'var(--space-4)' }}>
+            <VerifyView
+              runner={runner}
+              chunks={snap.chunks}
+              verifyIndex={snap.verifyIndex}
+              verifyPair={snap.verifyPair}
+              glossary={snap.glossary}
+              sourceLang={setup.sourceLang}
+              targetLang={setup.targetLang}
+              translating={snap.phase === 'verify'}
+              busy={busy}
+              onChunkChange={(index) => void run(async () => { await runner.runVerify({ index }); })}
+              onContinue={startGlossary}
+            />
+          </div>
+        )}
+
+        {(snap.phase === 'glossary' || snap.phase === 'glossaryReview') && (
+          <PhaseLoading
+            title={t.statusGlossary}
+            hint={fmt(t.glossaryProgress, { n: snap.glossaryIndex, total: Math.max(snap.glossaryTotal, 1) })}
+            onPause={() => runner.pause()}
+            events={snap.events}
           />
         )}
 
@@ -401,7 +504,17 @@ export default function App() {
   );
 }
 
-function StyleLoading({ events, onPause }: { events: JobEventList; onPause: () => void }) {
+function PhaseLoading({
+  title,
+  hint,
+  events,
+  onPause,
+}: {
+  title: string;
+  hint: string;
+  events: JobEventList;
+  onPause: () => void;
+}) {
   const { t } = useT();
   return (
     <div className="stack">
@@ -409,9 +522,9 @@ function StyleLoading({ events, onPause }: { events: JobEventList; onPause: () =
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
           <span className="spinner" />
           <div style={{ flexGrow: 1 }}>
-            <strong>{t.statusStyle}</strong>
+            <strong>{title}</strong>
             <p className="hint" style={{ margin: '4px 0 0' }}>
-              {fmt(t.sampledHint, { n: countReads(events) })}
+              {hint}
             </p>
           </div>
           <button className="btn btn-sm" type="button" onClick={onPause}>
@@ -440,18 +553,6 @@ function countChapters(chunks: Chunk[]): number {
       n += 1;
       last = key;
     }
-  }
-  return n;
-}
-
-/** Trial runs stop at the end of the first chapter. */
-function firstChapterLength(chunks: Chunk[]): number {
-  if (chunks.length === 0) return 0;
-  const first = `${chunks[0]!.documentPath}::${chunks[0]!.chapterTitle}`;
-  let n = 0;
-  for (const c of chunks) {
-    if (`${c.documentPath}::${c.chapterTitle}` !== first) break;
-    n += 1;
   }
   return n;
 }

@@ -1,5 +1,4 @@
 import { reverseMarkdownText } from '../ebook/markdown.ts';
-import type { GlossaryEntry } from '../glossary/index.ts';
 
 export type ChatMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -60,8 +59,12 @@ export function mockClient(): LlmClient {
         }
         return { text: MOCK_STYLE_GUIDE, toolCalls: [] };
       }
+      if (/Form a glossary/i.test(content)) {
+        const markdown = extractTagged(content, 'SOURCE') ?? content;
+        return { text: mockGlossaryJson(markdown), toolCalls: [] };
+      }
       const markdown = extractTagged(content, 'SOURCE') ?? content;
-      return { text: formatTranslateOutput(reverseMarkdownText(markdown), []), toolCalls: [] };
+      return { text: formatTranslateOutput(reverseMarkdownText(markdown)), toolCalls: [] };
     },
   };
 }
@@ -99,20 +102,22 @@ export function extractTagged(text: string, tag: string): string | undefined {
   return m?.[1]?.trim();
 }
 
-export function formatTranslateOutput(markdown: string, glossary: GlossaryEntry[]): string {
-  const lines = glossary.map((g) => `${g.src} | ${g.dst}`).join('\n');
-  return `<<<TRANSLATION>>>\n${markdown}\n<<<END_TRANSLATION>>>\n<<<GLOSSARY>>>\n${lines}\n<<<END_GLOSSARY>>>`;
+export function formatTranslateOutput(markdown: string): string {
+  return `<<<TRANSLATION>>>\n${markdown}\n<<<END_TRANSLATION>>>`;
 }
 
-export function parseTranslateOutput(text: string): { markdown: string; glossary: GlossaryEntry[] } {
+export function parseTranslateOutput(text: string): { markdown: string } {
   const markdown = extractTagged(text, 'TRANSLATION') ?? stripFence(text);
-  const raw = extractTagged(text, 'GLOSSARY') ?? '';
-  const glossary: GlossaryEntry[] = [];
-  for (const line of raw.split('\n')) {
-    const m = line.trim().match(/^(.+?)\s*(?:->|—|–|\|)\s*(.+)$/);
-    if (m) glossary.push({ src: m[1]!.trim(), dst: m[2]!.trim() });
+  return { markdown: markdown.trim() };
+}
+
+function mockGlossaryJson(markdown: string): string {
+  const names = [...new Set(markdown.match(/\b[A-Z][A-Za-z]{2,}\b/g) ?? [])];
+  const obj: Record<string, string> = {};
+  for (const name of names.slice(0, 24)) {
+    obj[name] = reverseMarkdownText(name);
   }
-  return { markdown: markdown.trim(), glossary };
+  return JSON.stringify(obj);
 }
 
 function stripFence(text: string): string {

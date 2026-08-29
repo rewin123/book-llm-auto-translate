@@ -18,6 +18,11 @@ const EMPTY: JobSnapshot = {
   elapsedMs: 0,
   etaMs: null,
   keptOriginal: 0,
+  glossaryIndex: 0,
+  glossaryTotal: 0,
+  liveIndex: 0,
+  verifyIndex: 0,
+  verifyPair: null,
 };
 
 /**

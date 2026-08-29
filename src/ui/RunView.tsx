@@ -28,19 +28,20 @@ type Props = {
   failure: JobFailure | null;
 };
 
-const RUNNING: JobPhase[] = ['translate', 'style'];
+const RUNNING: JobPhase[] = ['translate', 'style', 'glossary'];
 
 export function RunView(props: Props) {
   const { t, locale } = useT();
   const { snap } = props;
   const running = RUNNING.includes(snap.phase);
-  const pct = snap.total ? Math.round((snap.index / snap.total) * 100) : 0;
+  const done = snap.translated.length;
+  const pct = snap.total ? Math.round((done / snap.total) * 100) : 0;
   const lastEvent = snap.events[snap.events.length - 1];
   const trialFinished =
-    snap.phase === 'paused' && snap.index > 0 && snap.index < snap.total && snap.trialLimit !== null;
+    snap.phase === 'paused' && done > 0 && done < snap.total && snap.trialLimit !== null;
 
   const chapterCount = countChapters(snap.chunks);
-  const currentChapter = countChapters(snap.chunks.slice(0, Math.max(snap.index, 1)));
+  const currentChapter = countChapters(snap.chunks.slice(0, Math.max(snap.liveIndex, 1)));
 
   return (
     <div className="run">
@@ -104,7 +105,7 @@ export function RunView(props: Props) {
           <div className="run-meta">
             <span>
               <strong style={{ color: 'var(--ink)' }}>
-                {fmt(t.progressOf, { done: snap.index, total: snap.total })}
+                {fmt(t.progressOf, { done: snap.translated.length, total: snap.total })}
               </strong>
               {chapterCount > 0 && (
                 <> · {fmt(t.chapterOf, { n: Math.max(currentChapter, 1), total: chapterCount })}</>
@@ -118,15 +119,15 @@ export function RunView(props: Props) {
                   {fmt(t.keptCount, { n: snap.keptOriginal })}
                 </span>
               )}
-              {snap.cost?.usd != null && snap.index > 0 && (
+              {snap.cost?.usd != null && done > 0 && (
                 <span>
                   {fmt(t.spentSoFar, {
-                    cost: formatUsd((snap.cost.usd / Math.max(snap.total, 1)) * snap.index, t),
+                    cost: formatUsd((snap.cost.usd / Math.max(snap.total, 1)) * done, t),
                   })}
                 </span>
               )}
-              {snap.elapsedMs > 0 && snap.index > 0 && (
-                <span>{fmt(t.perChunk, { secs: Math.round(snap.elapsedMs / snap.index / 1000) })}</span>
+              {snap.elapsedMs > 0 && done > 0 && (
+                <span>{fmt(t.perChunk, { secs: Math.round(snap.elapsedMs / done / 1000) })}</span>
               )}
             </span>
           </div>
@@ -139,7 +140,7 @@ export function RunView(props: Props) {
         <ChapterRail
           chunks={snap.chunks}
           translated={snap.translated}
-          liveIndex={snap.index}
+          liveIndex={snap.liveIndex}
           currentIndex={props.index}
           onJump={(i) => props.onIndexChange(i, true)}
         />
@@ -158,7 +159,7 @@ export function RunView(props: Props) {
           {trialFinished && (
             <div className="card banner">
               <div style={{ flexGrow: 1 }}>
-                <strong>{fmt(t.trialFinished, { n: snap.index })}</strong>
+                <strong>{fmt(t.trialFinished, { n: done })}</strong>
                 <p>{t.trialFinishedBody}</p>
                 <div className="actions" style={{ marginTop: 'var(--space-3)' }}>
                   <button
@@ -177,7 +178,7 @@ export function RunView(props: Props) {
           <CompareView
             chunks={snap.chunks}
             translated={snap.translated}
-            liveIndex={snap.index}
+            liveIndex={snap.liveIndex}
             followLive={running}
             sourceLang={props.sourceLang}
             targetLang={props.targetLang}
@@ -249,6 +250,10 @@ function statusLabel(phase: JobPhase, t: ReturnType<typeof useT>['t']): string {
       return t.statusStyle;
     case 'review':
       return t.statusReview;
+    case 'glossary':
+      return t.statusGlossary;
+    case 'glossaryReview':
+      return t.statusGlossaryReview;
     case 'translate':
       return t.statusTranslating;
     case 'paused':

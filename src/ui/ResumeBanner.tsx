@@ -11,8 +11,16 @@ export function ResumeBanner(props: {
 }) {
   const { t, locale } = useT();
   const cp = props.checkpoint;
-  const pct = cp.chunks.length ? Math.round((cp.index / cp.chunks.length) * 100) : 0;
-  const state = cp.phase === 'review' || cp.phase === 'style' ? t.statusReview : t.statusPaused;
+  const done = cp.translated.length;
+  const pct = cp.chunks.length ? Math.round((done / cp.chunks.length) * 100) : 0;
+  const state =
+    cp.phase === 'review' || cp.phase === 'style'
+      ? t.statusReview
+      : cp.phase === 'verify' || cp.phase === 'verifyReview'
+        ? t.statusVerifyReview
+        : cp.phase === 'glossary' || cp.phase === 'glossaryReview'
+        ? t.statusGlossary
+        : t.statusPaused;
 
   return (
     <div className="card banner">
@@ -29,7 +37,7 @@ export function ResumeBanner(props: {
           {fmt(t.resumeMeta, {
             state,
             ago: cp.savedAt ? formatAgo(cp.savedAt, t) : '',
-            index: cp.index,
+            index: done,
             total: cp.chunks.length,
             from: shortLanguageName(cp.settings.sourceLang, locale),
             to: shortLanguageName(cp.settings.targetLang, locale),

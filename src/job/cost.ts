@@ -3,9 +3,16 @@ import { lookupCost } from '../llm/modelsDev.ts';
 import type { CostEstimate } from './types.ts';
 
 const STYLE_GUIDE_TOKENS = 1500;
-const GLOSSARY_CAP_TOKENS = 400;
+const GLOSSARY_CAP_TOKENS = 800;
+const GLOSSARY_OUT_TOKENS = 400;
 /** Before any real timings exist, assume a sequential call takes about this long. */
 const ASSUMED_MS_PER_CHUNK = 9000;
+const ASSUMED_MS_PER_GLOSSARY = 7000;
+
+export type CostOptions = {
+  concurrency?: number;
+  glossaryBatch?: number;
+};
 
 /**
  * Latin text runs ~4 characters per token, but Cyrillic and CJK are far denser.
@@ -20,15 +27,22 @@ export async function estimateCost(
   chunks: Chunk[],
   providerId: string,
   model: string,
+  opts: CostOptions = {},
 ): Promise<CostEstimate> {
   const n = Math.max(chunks.length, 1);
   const sample = chunks[0]?.markdown.slice(0, 2000) ?? '';
   const avgChars = chunks.reduce((s, c) => s + c.markdown.length, 0) / n;
+  const concurrency = Math.max(1, opts.concurrency ?? 1);
+  const glossaryBatch = Math.max(1, opts.glossaryBatch ?? 4);
+  const glossaryCalls = Math.ceil(chunks.length / glossaryBatch);
+
   const last2 = charsToTokens(avgChars * 2, sample);
   const perIn = charsToTokens(avgChars, sample) + STYLE_GUIDE_TOKENS + GLOSSARY_CAP_TOKENS + last2;
   const perOut = Math.ceil(charsToTokens(avgChars, sample) * 1.15);
-  const inputTokens = Math.round(perIn * chunks.length);
-  const outputTokens = Math.round(perOut * chunks.length);
+  const glossaryIn = glossaryCalls * (STYLE_GUIDE_TOKENS + charsToTokens(avgChars * glossaryBatch, sample));
+  const glossaryOut = glossaryCalls * GLOSSARY_OUT_TOKENS;
+  const inputTokens = Math.round(perIn * chunks.length + glossaryIn);
+  const outputTokens = Math.round(perOut * chunks.length + glossaryOut);
   const cost = await lookupCost(providerId, model);
   let usd: number | null = null;
   if (cost.inputPerMillion != null && cost.outputPerMillion != null) {
@@ -36,12 +50,13 @@ export async function estimateCost(
       (inputTokens / 1_000_000) * cost.inputPerMillion +
       (outputTokens / 1_000_000) * cost.outputPerMillion;
   }
+  const translateEta = (chunks.length * ASSUMED_MS_PER_CHUNK) / concurrency;
   return {
     chunks: chunks.length,
     inputTokens,
     outputTokens,
     usd,
-    etaMs: chunks.length * ASSUMED_MS_PER_CHUNK,
+    etaMs: Math.round(glossaryCalls * ASSUMED_MS_PER_GLOSSARY + translateEta),
     model,
     priceKnown: cost.source !== 'unknown',
   };
@@ -64,9 +79,13 @@ export function scaleCost(cost: CostEstimate, chunkCount: number): CostEstimate 
 }
 
 /** Mean of the most recent accepted chunks — steadier than an all-time average. */
-export function etaFromTimings(msPerChunk: number[], remaining: number): number | null {
+export function etaFromTimings(
+  msPerChunk: number[],
+  remaining: number,
+  concurrency = 1,
+): number | null {
   const recent = msPerChunk.filter((m) => m > 0).slice(-8);
   if (recent.length === 0 || remaining <= 0) return null;
   const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-  return Math.round(mean * remaining);
+  return Math.round((mean * remaining) / Math.max(1, concurrency));
 }

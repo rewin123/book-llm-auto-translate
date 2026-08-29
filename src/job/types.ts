@@ -3,7 +3,18 @@ import type { GlossaryEntry } from '../glossary/index.ts';
 import type { ProviderId } from '../llm/presets.ts';
 import type { FailureKind } from '../llm/net.ts';
 
-export type JobPhase = 'idle' | 'style' | 'review' | 'translate' | 'paused' | 'done' | 'error';
+export type JobPhase =
+  | 'idle'
+  | 'style'
+  | 'review'
+  | 'verify'
+  | 'verifyReview'
+  | 'glossary'
+  | 'glossaryReview'
+  | 'translate'
+  | 'paused'
+  | 'done'
+  | 'error';
 
 export type JobSettings = {
   sourceLang: string;
@@ -12,8 +23,12 @@ export type JobSettings = {
   logLimit: number;
   providerId: ProviderId;
   model: string;
-  /** v1 always 1. Reserved so the graph is not rewritten for a parallel window. */
+  /** Parallel sequential translate windows. */
   concurrency: number;
+  /** Standard chunks packed into one glossary LLM call. */
+  glossaryBatch: number;
+  /** Reserved for a future review pass. Stored so the UI can collect it now. */
+  reviewBatch: number;
 };
 
 /** One LLM round-trip for a chunk, stored raw so it can be inspected later. */
@@ -57,7 +72,13 @@ export type LogKey =
   | 'retryNetwork'
   | 'retryRate'
   | 'retryServer'
-  | 'readChunk';
+  | 'readChunk'
+  | 'glossaryChunk'
+  | 'glossaryReady'
+  | 'pausedGlossary'
+  | 'windowStarted'
+  | 'verifyReady'
+  | 'pausedVerify';
 
 export type JobEvent = {
   ts: number;
@@ -98,12 +119,21 @@ export type Checkpoint = {
   chunks: Chunk[];
   styleGuide: string;
   glossary: GlossaryEntry[];
+  /** Per-big-chunk extracts, kept so a paused glossary pass can resume. */
+  glossaryByBig?: Record<string, GlossaryEntry[]>;
+  /** Manual seed rows, merged ahead of every auto extract (highest priority). */
+  glossarySeed?: GlossaryEntry[];
   translated: TranslatedPair[];
   index: number;
   phase: JobPhase;
   /** Time already spent translating, so a resumed job reports honest totals. */
   elapsedMs?: number;
   savedAt?: number;
+  /** Which pass to continue after a pause. */
+  pausedDuring?: 'style' | 'glossary' | 'translate' | 'verify';
+  /** Sample chunk under review on the Guideline Verifier step. */
+  verifyIndex?: number;
+  verifyPair?: TranslatedPair;
 };
 
 export type JobRunnerOptions = {

@@ -61,11 +61,17 @@ export function createLlmClient(stored: StoredProviders, onRetry?: RetryHandler)
 
 export function createSdkModel(stored: StoredProviders) {
   const { preset, baseURL, model, apiKey } = resolveProvider(stored);
+  const extras = providerExtras(preset.id);
   const provider = createOpenAICompatible({
     name: preset.id,
     baseURL,
     apiKey: apiKey || 'no-key',
     headers: preset.headers,
+    ...(Object.keys(extras).length > 0
+      ? {
+          transformRequestBody: (body: Record<string, unknown>) => ({ ...body, ...extras }),
+        }
+      : {}),
   });
   return { model: provider.chatModel(model), modelId: model, preset };
 }

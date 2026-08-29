@@ -53,7 +53,7 @@ export async function translateChunkNode(opts: {
     const parsed = parseTranslateOutput(text);
     const check = validateTranslation(opts.chunk.markdown, parsed.markdown);
     if (check.ok) {
-      return { markdown: parsed.markdown, glossary: parsed.glossary, usedOriginal: false, llmCalls };
+      return { markdown: parsed.markdown, glossary: [], usedOriginal: false, llmCalls };
     }
     lastReason = check.reason;
   }

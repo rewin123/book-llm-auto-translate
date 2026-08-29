@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeGlossary } from '../../src/glossary/index.ts';
+import { mergeGlossary, upsertGlossary } from '../../src/glossary/index.ts';
 import { translateUserPrompt } from '../../src/llm/prompts.ts';
 
 describe('glossary', () => {
@@ -12,6 +12,27 @@ describe('glossary', () => {
       { src: 'Alice', dst: 'Алиса' },
       { src: 'Dinah', dst: 'Дина' },
     ]);
+  });
+
+  it('gives an earlier big chunk priority when the same name is translated twice', () => {
+    const seed = [{ src: 'Queen', dst: 'Королева' }];
+    const early = [{ src: 'Alice', dst: 'Алиса' }, { src: 'Queen', dst: 'Ферзь' }];
+    const late = [{ src: 'Alice', dst: 'Алисия' }, { src: 'Dinah', dst: 'Дина' }];
+    const merged = mergeGlossary(mergeGlossary(seed, early), late);
+    expect(merged).toEqual([
+      { src: 'Queen', dst: 'Королева' },
+      { src: 'Alice', dst: 'Алиса' },
+      { src: 'Dinah', dst: 'Дина' },
+    ]);
+  });
+
+  it('overwrites an existing source form', () => {
+    const next = upsertGlossary(
+      [{ src: 'Alice', dst: 'Алиса' }],
+      'Alice',
+      'Алисия',
+    );
+    expect(next).toEqual([{ src: 'Alice', dst: 'Алисия' }]);
   });
 
   it('puts every glossary row in the translate prompt, including names absent from the chunk', () => {
