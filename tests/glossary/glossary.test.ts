@@ -14,6 +14,18 @@ describe('glossary', () => {
     ]);
   });
 
+  it('gives an earlier big chunk priority when the same name is translated twice', () => {
+    const seed = [{ src: 'Queen', dst: 'Королева' }];
+    const early = [{ src: 'Alice', dst: 'Алиса' }, { src: 'Queen', dst: 'Ферзь' }];
+    const late = [{ src: 'Alice', dst: 'Алисия' }, { src: 'Dinah', dst: 'Дина' }];
+    const merged = mergeGlossary(mergeGlossary(seed, early), late);
+    expect(merged).toEqual([
+      { src: 'Queen', dst: 'Королева' },
+      { src: 'Alice', dst: 'Алиса' },
+      { src: 'Dinah', dst: 'Дина' },
+    ]);
+  });
+
   it('puts every glossary row in the translate prompt, including names absent from the chunk', () => {
     const user = translateUserPrompt({
       markdown: 'Alice sat down.',

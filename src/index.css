@@ -215,7 +215,8 @@ a:hover {
 .stepper {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
   margin-bottom: var(--space-6);
   list-style: none;
   padding: 0;
@@ -300,6 +301,18 @@ a:hover {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
+}
+
+.row-3 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+
+@media (min-width: 780px) {
+  .row-3 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .actions {

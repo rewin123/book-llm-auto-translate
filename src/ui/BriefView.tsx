@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Chunk } from '../ebook/types.ts';
 import type { GlossaryEntry } from '../glossary/index.ts';
-import type { CostEstimate, JobEvent } from '../job/types.ts';
-import { scaleCost } from '../job/cost.ts';
-import { approxUsd, fmt, formatDuration, useT } from '../i18n/index.ts';
+import type { JobEvent } from '../job/types.ts';
+import { fmt, useT } from '../i18n/index.ts';
 import { markdownToPlainText } from '../ebook/markdown.ts';
 import { ArrowRight, ChevronRight } from './icons.tsx';
 import { GlossaryTable } from './GlossaryTable.tsx';
@@ -18,25 +17,17 @@ type Props = {
   defaultGuide: string;
   glossary: GlossaryEntry[];
   setGlossary: (next: GlossaryEntry[]) => void;
-  cost: CostEstimate | null;
   busy: boolean;
-  onTranslate: (chunkLimit: number) => void;
-  firstChapterChunks: number;
+  onBuildGlossary: () => void;
 };
 
 export function BriefView(props: Props) {
   const { t } = useT();
-  const total = props.chunks.length;
-  const [limit, setLimit] = useState(total);
   // Desktop keeps the sample pane open beside the editor; phones start collapsed
   // so the guidelines stay on screen.
   const [sampledOpen, setSampledOpen] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(WIDE_BRIEF).matches,
   );
-
-  useEffect(() => {
-    setLimit(total);
-  }, [total]);
 
   const sampled = useMemo(() => {
     const seen = new Set<number>();
@@ -50,11 +41,6 @@ export function BriefView(props: Props) {
   }, [props.events, props.chunks]);
 
   const edited = props.guide !== props.defaultGuide && props.defaultGuide !== '';
-  const n = clampLimit(limit, total);
-  const shown = props.cost ? scaleCost(props.cost, n) : null;
-  const firstChapter = props.firstChapterChunks;
-  const showFirst =
-    firstChapter > 0 && firstChapter < total;
 
   return (
     <div className="stack">
@@ -159,116 +145,27 @@ export function BriefView(props: Props) {
         <div
           style={{
             display: 'flex',
-            alignItems: 'flex-start',
+            alignItems: 'center',
             justifyContent: 'space-between',
-            gap: 'var(--space-8)',
+            gap: 'var(--space-6)',
             flexWrap: 'wrap',
           }}
         >
-          <div style={{ flexGrow: 1, minWidth: 260 }}>
-            <div style={{ maxWidth: 280, marginBottom: 'var(--space-4)' }}>
-              <label htmlFor="chunk-limit">{t.chunkLimit}</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                <input
-                  id="chunk-limit"
-                  type="number"
-                  min={1}
-                  max={total}
-                  step={1}
-                  value={limit}
-                  onChange={(e) => setLimit(Number(e.target.value))}
-                  onBlur={() => setLimit(n)}
-                  style={{ flex: '1 1 8rem' }}
-                />
-                <span className="hint" style={{ flexShrink: 0 }}>
-                  {fmt(t.chunkLimitOf, { total })}
-                </span>
-              </div>
-              <div className="actions" style={{ marginTop: 'var(--space-2)' }}>
-                {showFirst && (
-                  <button
-                    className="btn btn-sm"
-                    type="button"
-                    aria-pressed={n === firstChapter}
-                    onClick={() => setLimit(firstChapter)}
-                  >
-                    {fmt(t.chunkLimitFirst, { n: firstChapter })}
-                  </button>
-                )}
-                <button
-                  className="btn btn-sm"
-                  type="button"
-                  aria-pressed={n === total}
-                  onClick={() => setLimit(total)}
-                >
-                  {fmt(t.chunkLimitAll, { n: total })}
-                </button>
-              </div>
-              <p className="hint" style={{ margin: '6px 0 0' }}>
-                {t.chunkLimitHint}
-              </p>
-            </div>
-
-            <dl
-              className="stats"
-              style={{
-                gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                margin: '0 0 var(--space-3)',
-              }}
-            >
-              <div>
-                <dt>{t.costChunks}</dt>
-                <dd>{shown?.chunks ?? n}</dd>
-              </div>
-              <div>
-                <dt>{t.costTokens}</dt>
-                <dd>
-                  {shown
-                    ? `~${Math.round((shown.inputTokens + shown.outputTokens) / 1000)}k`
-                    : '—'}
-                </dd>
-              </div>
-              <div>
-                <dt>{t.costCost}</dt>
-                <dd>{shown ? approxUsd(shown.usd, t) : '—'}</dd>
-              </div>
-              <div>
-                <dt>{t.costTime}</dt>
-                <dd>{shown?.etaMs ? `~${formatDuration(shown.etaMs, t)}` : '—'}</dd>
-              </div>
-            </dl>
-            <p className="hint" style={{ margin: 0, maxWidth: '46rem' }}>
-              {fmt(t.costNote, { n, model: shown?.model ?? props.cost?.model ?? '' })}
-            </p>
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 9,
-              minWidth: 240,
-              flexShrink: 0,
-            }}
+          <p className="hint" style={{ margin: 0, maxWidth: '40rem' }}>
+            {t.glossaryNextHint}
+          </p>
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={props.busy || props.chunks.length === 0}
+            onClick={props.onBuildGlossary}
+            style={{ padding: '12px 20px' }}
           >
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={props.busy || total === 0}
-              onClick={() => props.onTranslate(n)}
-              style={{ padding: '12px 20px' }}
-            >
-              {n >= total ? t.translateAll : fmt(t.translateCount, { n })}
-              <ArrowRight />
-            </button>
-          </div>
+            {t.buildGlossary}
+            <ArrowRight />
+          </button>
         </div>
       </div>
     </div>
   );
-}
-
-function clampLimit(raw: number, total: number): number {
-  if (!Number.isFinite(raw) || total < 1) return Math.max(total, 0);
-  return Math.min(total, Math.max(1, Math.round(raw)));
 }
