@@ -15,14 +15,9 @@ HARD RULES:
 - Preserve markdown structure: headings, emphasis, lists, blockquotes, code fences, tables.
 - Preserve link targets and image paths exactly. Translate the visible text / alt, never the URL or path inside (...).
 - Do not add, remove, or convert markdown into HTML/XML tags.
-- Output markdown only — no preamble.
+- Output markdown only — no preamble and no code fence around the whole chunk.
 - The SOURCE block is the original. Write only the ${opts.targetLang} translation. Do not copy the source language into the output, and do not repeat previous chunks.
-- Use the glossary forms exactly when the source word appears. Do not add, drop, or rewrite glossary entries.
-
-Return EXACTLY this format:
-<<<TRANSLATION>>>
-the translated markdown
-<<<END_TRANSLATION>>>`;
+- Use the glossary forms exactly when the source word appears. Do not add, drop, or rewrite glossary entries.`;
 }
 
 export function translateUserPrompt(opts: {

@@ -58,8 +58,10 @@ describe('prompts', () => {
       targetLang: 'ru',
       styleGuide: 'Be literary.',
     });
-    expect(sys).toContain('<<<TRANSLATION>>>');
+    expect(sys).not.toContain('<<<TRANSLATION>>>');
+    expect(sys).not.toContain('<<<END_TRANSLATION>>>');
     expect(sys).not.toContain('<<<GLOSSARY>>>');
+    expect(sys).toMatch(/markdown only/i);
   });
 
   it('lists chapters in the style-agent user message', () => {

@@ -3,7 +3,7 @@ import type { Chunk, PackedBook, ParsedBook } from '../ebook/types.ts';
 import { extractGlossaryNode, lastTwoFor } from '../graph/glossary.ts';
 import { translateChunkNode } from '../graph/nodes.ts';
 import { mergeGlossary, upsertGlossary, type GlossaryEntry } from '../glossary/index.ts';
-import { createLlmClient } from '../llm/index.ts';
+import { createLlmClient, stripHarnessMarkers } from '../llm/index.ts';
 import type { StoredProviders } from '../llm/presets.ts';
 import { runReviewAgent } from '../review/agent.ts';
 import { applyReviewEdit } from '../review/edit.ts';
@@ -340,14 +340,19 @@ export class JobRunner {
     this.glossaryByBig = cp.glossaryByBig ?? {};
     this.glossaryIndex = Object.keys(this.glossaryByBig).length;
     this.glossaryTotal = groupBigChunks(this.book.chunks, this.glossaryBatch).length;
-    this.translated = cp.translated;
+    this.translated = cp.translated.map((t) => ({
+      ...t,
+      translation: stripHarnessMarkers(t.translation),
+    }));
     this.index = cp.index;
     this.elapsedMs = cp.elapsedMs ?? 0;
     this.failure = null;
     this.trialLimit = null;
     this.packed = null;
     this.verifyIndex = cp.verifyIndex ?? longestChunkIndex(this.book.chunks);
-    this.verifyPair = cp.verifyPair ?? null;
+    this.verifyPair = cp.verifyPair
+      ? { ...cp.verifyPair, translation: stripHarnessMarkers(cp.verifyPair.translation) }
+      : null;
     this.reviewedByWindow = cp.reviewedByWindow ?? {};
     const reviewWindows = groupReviewWindows(this.book.chunks.length, this.reviewBatch);
     this.reviewTotal = reviewWindows.length;
@@ -539,7 +544,7 @@ export class JobRunner {
     this.verifyPair = {
       index: this.verifyIndex,
       original: originalMarkdown,
-      translation: result.markdown,
+      translation: stripHarnessMarkers(result.markdown),
       usedOriginal: result.usedOriginal,
       reason: result.reason,
       ms: Date.now() - started,
@@ -713,9 +718,10 @@ export class JobRunner {
   }
 
   private commitPair(pair: TranslatedPair) {
-    const at = this.translated.findIndex((t) => t.index === pair.index);
-    if (at >= 0) this.translated[at] = pair;
-    else this.translated.push(pair);
+    const cleaned = { ...pair, translation: stripHarnessMarkers(pair.translation) };
+    const at = this.translated.findIndex((t) => t.index === cleaned.index);
+    if (at >= 0) this.translated[at] = cleaned;
+    else this.translated.push(cleaned);
     this.translated.sort((a, b) => a.index - b.index);
     this.index = this.translated.length;
   }
@@ -795,7 +801,7 @@ export class JobRunner {
     for (const chunk of slice) {
       const pair = this.translated.find((t) => t.index === chunk.index);
       originals.push(pair?.original ?? chunk.markdown);
-      parts.push(pair?.translation ?? chunk.markdown);
+      parts.push(stripHarnessMarkers(pair?.translation ?? chunk.markdown));
     }
     const originalJoined = originals.join('');
 
@@ -917,7 +923,9 @@ export class JobRunner {
    */
   async pack(): Promise<PackedBook | null> {
     if (!this.book || !this.settings) return null;
-    const byIndex = new Map(this.translated.map((t) => [t.index, t.translation]));
+    const byIndex = new Map(
+      this.translated.map((t) => [t.index, stripHarnessMarkers(t.translation)]),
+    );
     const translations = this.book.chunks.map((c, i) => byIndex.get(i) ?? c.markdown);
     this.packed = await packBook({
       book: this.book,

@@ -22,6 +22,14 @@ describe('translation validation', () => {
     ).toBe(false);
   });
 
+  it('rejects leftover translation harness tags', () => {
+    const tagged = '<<<TRANSLATION>>>\nПривет *мир* [далее](n.html) ![обложка](images/cover.png).';
+    expect(validateTranslation(src, tagged)).toEqual({
+      ok: false,
+      reason: 'harness tags in translation',
+    });
+  });
+
   it('does not require identical emphasis markers', () => {
     const dst = 'Привет **мир** and a [далее](n.html) plus ![обложка](images/cover.png).';
     expect(validateTranslation(src, dst).ok).toBe(true);

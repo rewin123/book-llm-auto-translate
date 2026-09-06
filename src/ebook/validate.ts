@@ -19,6 +19,9 @@ export function validateTranslation(source: string, translation: string): Valida
     return { ok: false, reason: 'translation too long' };
   }
   if (REFUSAL_RE.test(dstText)) return { ok: false, reason: 'model refusal' };
+  if (/<<<(?:END_)?(?:TRANSLATION|SOURCE|GLOSSARY)>>>/i.test(translation)) {
+    return { ok: false, reason: 'harness tags in translation' };
+  }
 
   for (const src of collectImageSrcs(source)) {
     if (!translation.includes(`](${src})`)) {
