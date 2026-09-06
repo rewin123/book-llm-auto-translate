@@ -23,6 +23,8 @@ const EMPTY: JobSnapshot = {
   liveIndex: 0,
   verifyIndex: 0,
   verifyPair: null,
+  reviewIndex: 0,
+  reviewTotal: 0,
 };
 
 /**

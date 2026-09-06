@@ -158,7 +158,7 @@ export default function App() {
     runner.applyPrefs(settings(), stored);
     void runner.refreshCost(stored);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stored.activeId, activeModel, setup.concurrency, setup.glossaryBatch]);
+  }, [stored.activeId, activeModel, setup.concurrency, setup.glossaryBatch, setup.reviewBatch]);
 
   useEffect(() => {
     if (snap.styleGuide && !guideDraft) setGuideDraft(snap.styleGuide);
@@ -179,7 +179,8 @@ export default function App() {
       snap.phase === 'glossary' ||
       snap.phase === 'glossaryReview' ||
       snap.phase === 'verify' ||
-      snap.phase === 'verifyReview'
+      snap.phase === 'verifyReview' ||
+      snap.phase === 'translateReview'
     ) {
       setGlossaryDraft(snap.glossary);
     }
@@ -192,7 +193,7 @@ export default function App() {
     });
   }, [snap.phase, busy, run, runner]);
 
-  const running = snap.phase === 'translate' || snap.phase === 'style' || snap.phase === 'glossary';
+  const running = snap.phase === 'translate' || snap.phase === 'style' || snap.phase === 'glossary' || snap.phase === 'translateReview';
 
   useEffect(() => {
     if (!pinned && running && snap.translated.length > 0) {

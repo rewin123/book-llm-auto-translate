@@ -28,14 +28,16 @@ type Props = {
   failure: JobFailure | null;
 };
 
-const RUNNING: JobPhase[] = ['translate', 'style', 'glossary'];
+const RUNNING: JobPhase[] = ['translate', 'translateReview', 'style', 'glossary'];
 
 export function RunView(props: Props) {
   const { t, locale } = useT();
   const { snap } = props;
   const running = RUNNING.includes(snap.phase);
-  const done = snap.translated.length;
-  const pct = snap.total ? Math.round((done / snap.total) * 100) : 0;
+  const reviewing = snap.phase === 'translateReview';
+  const done = reviewing ? snap.reviewIndex : snap.translated.length;
+  const total = reviewing ? Math.max(snap.reviewTotal, 1) : snap.total;
+  const pct = total ? Math.round((done / total) * 100) : 0;
   const lastEvent = snap.events[snap.events.length - 1];
   const trialFinished =
     snap.phase === 'paused' && done > 0 && done < snap.total && snap.trialLimit !== null;
@@ -98,14 +100,16 @@ export function RunView(props: Props) {
             aria-valuenow={pct}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={t.statusTranslating}
+            aria-label={reviewing ? t.statusReviewing : t.statusTranslating}
           >
             <span style={{ width: `${pct}%` }} />
           </div>
           <div className="run-meta">
             <span>
               <strong style={{ color: 'var(--ink)' }}>
-                {fmt(t.progressOf, { done: snap.translated.length, total: snap.total })}
+                {reviewing
+                  ? fmt(t.reviewProgressOf, { done: snap.reviewIndex, total: snap.reviewTotal })
+                  : fmt(t.progressOf, { done: snap.translated.length, total: snap.total })}
               </strong>
               {chapterCount > 0 && (
                 <> · {fmt(t.chapterOf, { n: Math.max(currentChapter, 1), total: chapterCount })}</>
@@ -119,15 +123,15 @@ export function RunView(props: Props) {
                   {fmt(t.keptCount, { n: snap.keptOriginal })}
                 </span>
               )}
-              {snap.cost?.usd != null && done > 0 && (
+              {snap.cost?.usd != null && snap.translated.length > 0 && (
                 <span>
                   {fmt(t.spentSoFar, {
-                    cost: formatUsd((snap.cost.usd / Math.max(snap.total, 1)) * done, t),
+                    cost: formatUsd((snap.cost.usd / Math.max(snap.total, 1)) * snap.translated.length, t),
                   })}
                 </span>
               )}
-              {snap.elapsedMs > 0 && done > 0 && (
-                <span>{fmt(t.perChunk, { secs: Math.round(snap.elapsedMs / done / 1000) })}</span>
+              {snap.elapsedMs > 0 && snap.translated.length > 0 && (
+                <span>{fmt(t.perChunk, { secs: Math.round(snap.elapsedMs / snap.translated.length / 1000) })}</span>
               )}
             </span>
           </div>
@@ -256,6 +260,8 @@ function statusLabel(phase: JobPhase, t: ReturnType<typeof useT>['t']): string {
       return t.statusGlossaryReview;
     case 'translate':
       return t.statusTranslating;
+    case 'translateReview':
+      return t.statusReviewing;
     case 'paused':
       return t.statusPaused;
     case 'done':

@@ -12,6 +12,7 @@ export type JobPhase =
   | 'glossary'
   | 'glossaryReview'
   | 'translate'
+  | 'translateReview'
   | 'paused'
   | 'done'
   | 'error';
@@ -27,7 +28,7 @@ export type JobSettings = {
   concurrency: number;
   /** Standard chunks packed into one glossary LLM call. */
   glossaryBatch: number;
-  /** Reserved for a future review pass. Stored so the UI can collect it now. */
+  /** Standard chunks packed into one post-translate review agent. */
   reviewBatch: number;
 };
 
@@ -78,7 +79,10 @@ export type LogKey =
   | 'pausedGlossary'
   | 'windowStarted'
   | 'verifyReady'
-  | 'pausedVerify';
+  | 'pausedVerify'
+  | 'reviewWindow'
+  | 'reviewReady'
+  | 'pausedReview';
 
 export type JobEvent = {
   ts: number;
@@ -130,7 +134,9 @@ export type Checkpoint = {
   elapsedMs?: number;
   savedAt?: number;
   /** Which pass to continue after a pause. */
-  pausedDuring?: 'style' | 'glossary' | 'translate' | 'verify';
+  pausedDuring?: 'style' | 'glossary' | 'translate' | 'verify' | 'translateReview';
+  /** Review windows already committed, so a paused seam pass can resume. */
+  reviewedByWindow?: Record<string, true>;
   /** Sample chunk under review on the Guideline Verifier step. */
   verifyIndex?: number;
   verifyPair?: TranslatedPair;

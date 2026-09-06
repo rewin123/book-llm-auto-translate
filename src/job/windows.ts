@@ -49,3 +49,34 @@ export function splitTranslateWindows(chunkCount: number, parallelN: number): Tr
   }
   return out;
 }
+
+/**
+ * Pack standard chunks into review windows of `batch` with a 1-chunk overlap so
+ * every translate-window seam is visible to some reviewer.
+ *
+ * `batch` 5, 10 chunks → [0,5), [4,9), [8,10).
+ * `batch` 1 has no overlap (step is at least 1).
+ */
+export function groupReviewWindows(chunkCount: number, batch: number): TranslateWindow[] {
+  if (chunkCount <= 0) return [];
+  const size = Math.max(1, Math.floor(batch) || 1);
+  const step = Math.max(1, size - 1);
+  const out: TranslateWindow[] = [];
+  for (let start = 0; start < chunkCount; start += step) {
+    const to = Math.min(start + size, chunkCount);
+    out.push({ id: out.length, from: start, to });
+    if (to >= chunkCount) break;
+  }
+  return out;
+}
+
+/** Adjacent windows share a chunk; even and odd ids never do (for size ≥ 2). */
+export function splitReviewWaves(windows: TranslateWindow[]): {
+  even: TranslateWindow[];
+  odd: TranslateWindow[];
+} {
+  return {
+    even: windows.filter((w) => w.id % 2 === 0),
+    odd: windows.filter((w) => w.id % 2 === 1),
+  };
+}
