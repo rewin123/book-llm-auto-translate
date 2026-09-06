@@ -137,11 +137,11 @@ Provider, model, and key stay here, along with generation controls:
 | Parallel threads | 1 | Contiguous sequential windows. `1` is the old behaviour. No upper cap. |
 | Chunk size | 5,000 | Standard markdown split. Changing it re-splits the book. |
 | Chunks per glossary call | 4 | How many standard chunks form one glossary LLM request. |
-| Chunks per review call | 5 | Stored for a later review pass. Does not change translation yet. |
+| Chunks per review call | 5 | Consecutive chunks one review agent sees. Adjacent windows overlap by one chunk so seams are visible. |
 
 Languages are chosen on this screen. Changing the pair re-parses so bilingual books can drop already-translated paragraphs.
 
-The Generation card shows an estimated dollar cost for glossary + translation at the current model, concurrency, and glossary batch. It is not a bill.
+The Generation card shows an estimated dollar cost for glossary + translation + seam review at the current model, concurrency, glossary batch, and review batch. It is not a bill.
 
 Event log size (5–200, default 40) stays under Advanced. Changing chunk size **re-splits** the book; if translated chunks already exist, the app warns you.
 
@@ -183,6 +183,8 @@ The estimate on Settings is **not a bill**. Translation calls carry the style gu
 
 Chunks are split into `ceil(N / parallel)` contiguous windows. Each window runs sequentially; windows run in parallel. The first chunk of a later window has no previous translation until a resume. The model returns **only** the translation.
 
+When every chunk is in, a **seam review** pass runs. It packs `reviewBatch` chunks per agent, overlapping neighbours by one chunk, and lets the agent call `read_translate` / `edit_translate` until the joins look right. Even and odd windows are two parallel waves so two agents never edit the same overlap at once.
+
 On screen:
 
 - progress, chapter, remaining-time estimate, spend so far, seconds per chunk;
@@ -220,7 +222,8 @@ Summary: translated vs kept original, tokens, cost, time. Referenced images are 
 5. Glossary pass: big chunks of `glossaryBatch` standard chunks, one JSON map per call, merged first-wins (seed and verify rows first, then earlier big chunks). Runs unattended, then translation starts.
 6. Parallel translation: `ceil(N / parallel)` sequential windows. Each call gets the frozen glossary, style guide, and the previous two translations when they exist. Output is translation only.
 7. Markdown is validated: non-empty, plausible text length, preserved image paths and link targets, no explicit model refusal. Three failures keep the original chunk.
-8. Translated chunks are concatenated into one markdown document, then converted to a new EPUB.
+8. Seam review: overlapping windows of `reviewBatch` chunks (`[0, M_C)`, `[M_C−1, 2M_C−1)`, …). Each window launches an agent with `read_translate` / `edit_translate` so it can fix stitching at chunk boundaries without rewriting the whole passage. Even and odd windows run as two parallel waves so overlap chunks are not written concurrently.
+9. Translated chunks are concatenated into one markdown document, then converted to a new EPUB.
 
 One model request times out after **3 minutes**.
 
@@ -273,9 +276,8 @@ Other localStorage keys: `booktrans.v1.setup`, `booktrans.v1.locale`, `booktrans
 
 ## v1 limits
 
-- Parallelism is contiguous windows, not a token-level batch API. Window seams have no previous translation on the first pass.
+- Parallelism is contiguous windows, not a token-level batch API. Window seams have no previous translation on the first pass; a later review agent sees them with a one-chunk overlap.
 - No whole-book RAG — only the style guidelines, the frozen glossary, and two neighbouring chunks.
-- The review-batch setting is stored but the review pass is not implemented yet.
 - PDF, MOBI, and AZW are not read.
 - Output is always EPUB. Original CSS, fonts, and page layout are not preserved.
 - xAI from the browser is often blocked by CORS.
@@ -290,8 +292,9 @@ Layout (more in [CONTRIBUTING.md](CONTRIBUTING.md)):
 | Path | Role |
 | --- | --- |
 | `src/ebook/` | parse EPUB/FB2 → markdown, encodings (incl. windows-1251), chunk, validate markdown, pack a new EPUB |
-| `src/job/` | `JobRunner` (style → verify → glossary → parallel windows), IndexedDB checkpoint, abort, cost estimate |
+| `src/job/` | `JobRunner` (style → verify → glossary → parallel windows → seam review), IndexedDB checkpoint, abort, cost estimate |
 | `src/verify/` | sample-chunk verifier: improve agent, tools, longest-chunk pick |
+| `src/review/` | post-translate seam reviewer: overlapping windows, `read_translate` / `edit_translate` |
 | `src/graph/` | glossary extract + translate node (frozen glossary + last two chunks) |
 | `src/style/` | style agent with `read_chunk` |
 | `src/llm/` | BYOK providers, mock LLM, models.dev prices, prompts |

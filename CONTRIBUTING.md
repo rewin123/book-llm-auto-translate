@@ -5,9 +5,10 @@ Zero-install book translator: everything runs in the browser. No backend.
 ## Layout
 
 - `src/ebook/` — parse EPUB/FB2 to markdown (incl. windows-1251 FB2), chunk, validate, pack a new EPUB
-- `src/job/` — `JobRunner` (style → glossary → parallel translate windows), IndexedDB checkpoint, abort, cost estimate
+- `src/job/` — `JobRunner` (style → glossary → parallel translate windows → seam review), IndexedDB checkpoint, abort, cost estimate
 - `src/graph/` — glossary extract node + translate node (frozen glossary + last two chunks)
 - `src/style/` — style agent with `read_chunk`
+- `src/review/` — post-translate review agent with `read_translate` / `edit_translate`
 - `src/llm/` — BYOK providers, mock LLM, models.dev prices, prompts
 - `src/glossary/` — name map merge/filter
 - `src/ui/` is the React tree in `src/App.tsx` plus `src/i18n/` and `src/storage/`

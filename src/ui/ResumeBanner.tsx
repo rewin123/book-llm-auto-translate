@@ -20,6 +20,8 @@ export function ResumeBanner(props: {
         ? t.statusVerifyReview
         : cp.phase === 'glossary' || cp.phase === 'glossaryReview'
         ? t.statusGlossary
+        : cp.phase === 'translateReview'
+          ? t.statusReviewing
         : t.statusPaused;
 
   return (

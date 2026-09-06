@@ -530,6 +530,7 @@ textarea {
 }
 
 .status-pill[data-state='translate'] .dot,
+.status-pill[data-state='translateReview'] .dot,
 .status-pill[data-state='style'] .dot {
   background: var(--accent);
   animation: pulse 1.6s ease-in-out infinite;

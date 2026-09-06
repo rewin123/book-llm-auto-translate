@@ -5,6 +5,8 @@ import { translateChunkNode } from '../graph/nodes.ts';
 import { mergeGlossary, upsertGlossary, type GlossaryEntry } from '../glossary/index.ts';
 import { createLlmClient } from '../llm/index.ts';
 import type { StoredProviders } from '../llm/presets.ts';
+import { runReviewAgent } from '../review/agent.ts';
+import { applyReviewEdit } from '../review/edit.ts';
 import { runStyleAgent } from '../style/agent.ts';
 import { longestChunkIndex } from '../verify/chunk.ts';
 import { editStyleGuideline } from '../verify/guide.ts';
@@ -16,7 +18,13 @@ import {
 } from '../storage/setup.ts';
 import { saveCheckpoint } from './checkpoint.ts';
 import { estimateCost, etaFromTimings } from './cost.ts';
-import { groupBigChunks, splitTranslateWindows } from './windows.ts';
+import {
+  groupBigChunks,
+  groupReviewWindows,
+  splitReviewWaves,
+  splitTranslateWindows,
+  type TranslateWindow,
+} from './windows.ts';
 import type {
   Checkpoint,
   CostEstimate,
@@ -52,6 +60,8 @@ export type JobSnapshot = {
   liveIndex: number;
   verifyIndex: number;
   verifyPair: TranslatedPair | null;
+  reviewIndex: number;
+  reviewTotal: number;
 };
 
 export type RunnerListener = (s: JobSnapshot) => void;
@@ -81,7 +91,10 @@ export class JobRunner {
   glossaryTotal = 0;
   verifyIndex = 0;
   verifyPair: TranslatedPair | null = null;
-  pausedDuring: 'style' | 'glossary' | 'translate' | 'verify' | null = null;
+  reviewIndex = 0;
+  reviewTotal = 0;
+  reviewedByWindow: Record<string, true> = {};
+  pausedDuring: 'style' | 'glossary' | 'translate' | 'verify' | 'translateReview' | null = null;
   private persistChain: Promise<void> = Promise.resolve();
 
   listener: RunnerListener;
@@ -125,7 +138,9 @@ export class JobRunner {
       elapsedMs: this.elapsedMs,
       etaMs: etaFromTimings(
         this.translated.map((t) => t.ms ?? 0),
-        Math.max(0, (this.trialLimit ?? total) - this.translated.length),
+        this.phase === 'translateReview'
+          ? Math.max(0, this.reviewTotal - this.reviewIndex)
+          : Math.max(0, (this.trialLimit ?? total) - this.translated.length),
         this.concurrency,
       ),
       keptOriginal: this.keptOriginal,
@@ -134,10 +149,18 @@ export class JobRunner {
       liveIndex: this.liveIndex,
       verifyIndex: this.verifyIndex,
       verifyPair: this.verifyPair,
+      reviewIndex: this.reviewIndex,
+      reviewTotal: this.reviewTotal,
     });
   }
 
   get liveIndex(): number {
+    if (this.phase === 'translateReview' && this.book) {
+      const windows = groupReviewWindows(this.book.chunks.length, this.reviewBatch);
+      for (const w of windows) {
+        if (!this.reviewedByWindow[String(w.id)]) return w.from;
+      }
+    }
     const done = new Set(this.translated.map((t) => t.index));
     const end = this.trialLimit ?? this.book?.chunks.length ?? 0;
     for (let i = 0; i < end; i++) {
@@ -178,6 +201,7 @@ export class JobRunner {
       pausedDuring: this.pausedDuring ?? undefined,
       verifyIndex: this.verifyIndex,
       verifyPair: this.verifyPair ?? undefined,
+      reviewedByWindow: this.reviewedByWindow,
     };
     this.persistChain = this.persistChain.then(
       () => this.writeCheckpoint(cp),
@@ -216,7 +240,8 @@ export class JobRunner {
       this.phase === 'glossaryReview' ||
       this.phase === 'verify' ||
       this.phase === 'verifyReview' ||
-      this.phase === 'translate'
+      this.phase === 'translate' ||
+      this.phase === 'translateReview'
     ) {
       return;
     }
@@ -243,6 +268,9 @@ export class JobRunner {
     this.elapsedMs = 0;
     this.verifyIndex = 0;
     this.verifyPair = null;
+    this.reviewIndex = 0;
+    this.reviewTotal = 0;
+    this.reviewedByWindow = {};
     this.phase = 'idle';
     this.log('info', 'parsed', {
       title: this.book.title,
@@ -274,6 +302,7 @@ export class JobRunner {
     this.cost = await estimateCost(this.book.chunks, providerId, model, {
       concurrency: this.concurrency,
       glossaryBatch: this.glossaryBatch,
+      reviewBatch: this.reviewBatch,
     });
     this.emit();
   }
@@ -319,6 +348,10 @@ export class JobRunner {
     this.packed = null;
     this.verifyIndex = cp.verifyIndex ?? longestChunkIndex(this.book.chunks);
     this.verifyPair = cp.verifyPair ?? null;
+    this.reviewedByWindow = cp.reviewedByWindow ?? {};
+    const reviewWindows = groupReviewWindows(this.book.chunks.length, this.reviewBatch);
+    this.reviewTotal = reviewWindows.length;
+    this.reviewIndex = reviewWindows.filter((w) => this.reviewedByWindow[String(w.id)]).length;
     this.pausedDuring =
       cp.pausedDuring ??
       (cp.phase === 'glossary'
@@ -327,12 +360,15 @@ export class JobRunner {
           ? 'style'
           : cp.phase === 'verify' || cp.phase === 'verifyReview'
             ? 'verify'
-            : 'translate');
+            : cp.phase === 'translateReview'
+              ? 'translateReview'
+              : 'translate');
     this.phase =
       cp.phase === 'translate' ||
       cp.phase === 'glossary' ||
       cp.phase === 'style' ||
-      cp.phase === 'verify'
+      cp.phase === 'verify' ||
+      cp.phase === 'translateReview'
         ? 'paused'
         : cp.phase;
     this.log('info', 'restored', {
@@ -364,6 +400,9 @@ export class JobRunner {
     this.pausedDuring = null;
     this.verifyIndex = 0;
     this.verifyPair = null;
+    this.reviewIndex = 0;
+    this.reviewTotal = 0;
+    this.reviewedByWindow = {};
     this.emit();
   }
 
@@ -411,6 +450,7 @@ export class JobRunner {
   async resume() {
     if (this.pausedDuring === 'style' || !this.styleGuide) return this.runStyle();
     if (this.pausedDuring === 'verify') return this.runVerify({ index: this.verifyIndex });
+    if (this.pausedDuring === 'translateReview') return this.runTranslateReview();
     if (this.phase === 'glossaryReview') return this.runTranslate();
     if (this.pausedDuring === 'glossary') return this.runGlossary();
     return this.runTranslate();
@@ -571,7 +611,13 @@ export class JobRunner {
       this.logRaw('error', 'Nothing to translate — no book is loaded.');
       return;
     }
-    if (this.phase === 'translate' && this.abort && !this.abort.signal.aborted) return;
+    if (
+      (this.phase === 'translate' || this.phase === 'translateReview') &&
+      this.abort &&
+      !this.abort.signal.aborted
+    ) {
+      return;
+    }
     const concurrency = opts?.concurrency ?? this.concurrency;
     if (opts?.glossarySnapshot) this.glossary = opts.glossarySnapshot;
     const total = this.book.chunks.length;
@@ -605,10 +651,7 @@ export class JobRunner {
         return;
       }
 
-      await this.pack();
-      this.phase = 'done';
-      this.log('info', 'packed', { file: this.packed?.fileName ?? '' });
-      await this.persist();
+      await this.runTranslateReview();
     } catch (err) {
       await this.handleFailure(err, 'pausedChunk');
     }
@@ -677,6 +720,133 @@ export class JobRunner {
     this.index = this.translated.length;
   }
 
+  private invalidateReviewWindows(indices: number[]) {
+    if (!this.book || indices.length === 0) return;
+    const hit = new Set(indices);
+    for (const w of groupReviewWindows(this.book.chunks.length, this.reviewBatch)) {
+      for (let i = w.from; i < w.to; i++) {
+        if (hit.has(i)) {
+          delete this.reviewedByWindow[String(w.id)];
+          break;
+        }
+      }
+    }
+    this.reviewIndex = Object.keys(this.reviewedByWindow).length;
+  }
+
+  /**
+   * Post-translate seam review. Windows of `reviewBatch` chunks overlap by one
+   * so every chunk boundary is visible. Even/odd waves run in parallel so two
+   * agents never write the same overlap chunk at once.
+   */
+  async runTranslateReview() {
+    if (!this.book || !this.settings || !this.stored) return;
+    if (this.phase === 'translateReview' && this.abort && !this.abort.signal.aborted) return;
+    if (this.translated.length < this.book.chunks.length) return;
+    this.abort = new AbortController();
+    this.phase = 'translateReview';
+    this.pausedDuring = 'translateReview';
+    this.failure = null;
+    const windows = groupReviewWindows(this.book.chunks.length, this.reviewBatch);
+    this.reviewTotal = windows.length;
+    this.reviewIndex = windows.filter((w) => this.reviewedByWindow[String(w.id)]).length;
+    this.emit();
+    const signal = this.abort.signal;
+    try {
+      const { even, odd } = splitReviewWaves(windows);
+      await this.runReviewWave(even, signal);
+      await this.runReviewWave(odd, signal);
+      await this.pack();
+      this.phase = 'done';
+      this.log('info', 'reviewReady', { n: windows.length });
+      this.log('info', 'packed', { file: this.packed?.fileName ?? '' });
+      await this.persist();
+    } catch (err) {
+      await this.handleFailure(err, 'pausedReview');
+    }
+  }
+
+  private async runReviewWave(windows: TranslateWindow[], signal: AbortSignal) {
+    const pending = windows.filter((w) => !this.reviewedByWindow[String(w.id)]);
+    if (pending.length === 0) return;
+    const slots = splitTranslateWindows(pending.length, this.concurrency);
+    await Promise.all(slots.map((slot) => this.runReviewSlot(pending, slot, signal)));
+  }
+
+  private async runReviewSlot(
+    windows: TranslateWindow[],
+    slot: TranslateWindow,
+    signal: AbortSignal,
+  ) {
+    for (let i = slot.from; i < slot.to; i++) {
+      await this.runReviewWindow(windows[i]!, signal);
+    }
+  }
+
+  private async runReviewWindow(window: TranslateWindow, signal: AbortSignal) {
+    if (!this.book || !this.settings || !this.stored) return;
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    const key = String(window.id);
+    if (this.reviewedByWindow[key]) return;
+
+    const slice = this.book.chunks.slice(window.from, window.to);
+    const originals: string[] = [];
+    const parts: string[] = [];
+    for (const chunk of slice) {
+      const pair = this.translated.find((t) => t.index === chunk.index);
+      originals.push(pair?.original ?? chunk.markdown);
+      parts.push(pair?.translation ?? chunk.markdown);
+    }
+    const originalJoined = originals.join('');
+
+    this.log('info', 'reviewWindow', {
+      n: window.id + 1,
+      total: this.reviewTotal,
+      from: window.from + 1,
+      to: window.to,
+    });
+
+    const started = Date.now();
+    await runReviewAgent({
+      stored: this.stored,
+      abortSignal: signal,
+      sourceLang: this.settings.sourceLang,
+      targetLang: this.settings.targetLang,
+      styleGuide: this.styleGuide,
+      glossary: this.glossary,
+      original: originalJoined,
+      translation: parts.join(''),
+      from: window.from,
+      to: window.to,
+      chunkCount: this.book.chunks.length,
+      onRetry: (info) => this.logRetry(info),
+      tools: {
+        readTranslate: () => parts.join(''),
+        editTranslate: (oldStr, newStr) => applyReviewEdit(parts, originalJoined, oldStr, newStr),
+      },
+    });
+
+    for (let i = 0; i < slice.length; i++) {
+      const chunk = slice[i]!;
+      const pair = this.translated.find((t) => t.index === chunk.index);
+      if (!pair) continue;
+      const next = parts[i]!;
+      if (next === pair.translation) continue;
+      this.commitPair({
+        ...pair,
+        translation: next,
+        usedOriginal: next === pair.original ? pair.usedOriginal : false,
+        reason: next === pair.original ? pair.reason : undefined,
+      });
+    }
+
+    this.reviewedByWindow[key] = true;
+    this.reviewIndex = Object.keys(this.reviewedByWindow).length;
+    this.elapsedMs += Date.now() - started;
+    await this.persist();
+    this.emit();
+  }
+
   /** Re-runs only the chunks whose translation never validated. */
   async retryKeptOriginal() {
     if (!this.book || !this.settings || !this.stored) return;
@@ -724,14 +894,13 @@ export class JobRunner {
           });
         } else {
           this.log('chunk', 'chunkDone', { n: idx + 1, chapter: chunk.chapterTitle }, result.markdown);
+          this.invalidateReviewWindows([idx]);
         }
         await this.persist();
         this.emit();
       }
       if (this.index >= this.book.chunks.length) {
-        await this.pack();
-        this.phase = 'done';
-        this.log('info', 'packed', { file: this.packed?.fileName ?? '' });
+        await this.runTranslateReview();
       } else {
         this.phase = 'paused';
       }
