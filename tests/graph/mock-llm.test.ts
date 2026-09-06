@@ -43,6 +43,8 @@ describe('graph + mock LLM', () => {
       expect(result.llmCalls[0]?.user).toContain('Alice — Алиса');
       expect(result.llmCalls[0]?.user).toContain('Cheshire Cat — Чеширский кот');
       expect(result.llmCalls[0]?.response).toContain('<<<TRANSLATION>>>');
+      expect(result.markdown).not.toContain('<<<TRANSLATION>>>');
+      expect(result.markdown).not.toContain('<<<END_TRANSLATION>>>');
       glossary = mergeGlossary(glossary, result.glossary);
       translated.push(result.markdown);
       lastTwo.push({

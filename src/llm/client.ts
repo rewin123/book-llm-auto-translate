@@ -96,6 +96,8 @@ Do not alter markdown structure, link targets, or image paths. Translate alt tex
 - Don't add translator footnotes.
 `;
 
+const HARNESS_MARKER_RE = /<<<(?:END_)?(?:TRANSLATION|SOURCE|GLOSSARY)>>>/gi;
+
 export function extractTagged(text: string, tag: string): string | undefined {
   const re = new RegExp(`<<<${tag}>>>\\s*([\\s\\S]*?)\\s*<<<END_${tag}>>>`, 'i');
   const m = re.exec(text);
@@ -106,9 +108,23 @@ export function formatTranslateOutput(markdown: string): string {
   return `<<<TRANSLATION>>>\n${markdown}\n<<<END_TRANSLATION>>>`;
 }
 
+/**
+ * Models were asked to wrap the chunk in <<<TRANSLATION>>>…<<<END_TRANSLATION>>>.
+ * If the closing marker is missing (truncation, ignored instruction) or doubled,
+ * extractTagged fails or leaves the opener in the markdown, and the tag becomes
+ * the first line of the stored translation. Always strip leftover harness markers.
+ */
+export function stripHarnessMarkers(text: string): string {
+  let s = text.replace(/^\uFEFF/, '').trim();
+  const inner = extractTagged(s, 'TRANSLATION');
+  if (inner != null) s = inner;
+  s = s.replace(/^\s*<<<TRANSLATION>>>\s*/i, '');
+  s = s.replace(/\s*<<<END_TRANSLATION>>>\s*$/i, '');
+  return s.replace(HARNESS_MARKER_RE, '').trim();
+}
+
 export function parseTranslateOutput(text: string): { markdown: string } {
-  const markdown = extractTagged(text, 'TRANSLATION') ?? stripFence(text);
-  return { markdown: markdown.trim() };
+  return { markdown: stripHarnessMarkers(stripFence(text)) };
 }
 
 function mockGlossaryJson(markdown: string): string {

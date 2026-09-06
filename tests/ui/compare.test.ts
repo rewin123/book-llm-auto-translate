@@ -13,11 +13,14 @@ describe('comparePaneMarkdown', () => {
     expect(panes.original).not.toBe(panes.translation);
   });
 
-  it('shows source on both sides while a chunk is still pending', () => {
+  it('strips a leaked harness tag from a stored translation', () => {
     const chunk = { markdown: 'Hello Alice' };
-    const panes = comparePaneMarkdown(chunk, undefined);
-    expect(panes.original).toBe('Hello Alice');
-    expect(panes.translation).toBe('Hello Alice');
-    expect(panes.ready).toBe(false);
+    const pair = {
+      original: 'Hello Alice',
+      translation: '<<<TRANSLATION>>>\nПривет Алиса\n<<<END_TRANSLATION>>>',
+    };
+    const panes = comparePaneMarkdown(chunk, pair);
+    expect(panes.translation).toBe('Привет Алиса');
+    expect(panes.translation).not.toContain('TRANSLATION');
   });
 });

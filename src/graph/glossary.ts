@@ -1,5 +1,5 @@
 import { parseGlossaryJson, type GlossaryEntry } from '../glossary/index.ts';
-import type { LlmClient } from '../llm/client.ts';
+import { stripHarnessMarkers, type LlmClient } from '../llm/client.ts';
 import { glossarySystemPrompt, glossaryUserPrompt } from '../llm/prompts.ts';
 import { outputTokenBudget } from '../llm/openai.ts';
 import type { LlmCallAttempt } from '../job/types.ts';
@@ -54,7 +54,9 @@ export function lastTwoFor(
   const out = [];
   for (const i of [index - 2, index - 1]) {
     const pair = byIndex.get(i);
-    if (pair) out.push(pair);
+    if (pair) {
+      out.push({ ...pair, translation: stripHarnessMarkers(pair.translation) });
+    }
   }
   return out;
 }

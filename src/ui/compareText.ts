@@ -1,3 +1,5 @@
+import { stripHarnessMarkers } from '../llm/client.ts';
+
 /**
  * Markdown for the two compare panes. Always prefer the pair snapshot so a
  * later write to `chunk.markdown` cannot turn the original pane into the
@@ -12,7 +14,7 @@ export function comparePaneMarkdown(
   }
   return {
     original: pair.original || chunk.markdown,
-    translation: pair.translation,
+    translation: stripHarnessMarkers(pair.translation),
     ready: true,
   };
 }
