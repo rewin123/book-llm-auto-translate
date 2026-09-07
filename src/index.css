@@ -1167,6 +1167,18 @@ textarea {
   height: auto;
 }
 
+.page del.diff-del {
+  text-decoration: line-through;
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  border-radius: 2px;
+}
+
+.page ins.diff-ins {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+  border-radius: 2px;
+}
+
 .notice {
   display: flex;
   align-items: center;

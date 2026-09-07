@@ -25,6 +25,7 @@ const EMPTY: JobSnapshot = {
   verifyPair: null,
   reviewIndex: 0,
   reviewTotal: 0,
+  pausedDuring: null,
 };
 
 /**

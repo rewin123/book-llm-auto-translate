@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyReviewEdit, editTranslateParts, formatEditResult } from '../../src/review/edit.ts';
+import { applyReviewEdit, applyReviewedTranslation, editTranslateParts, formatEditResult } from '../../src/review/edit.ts';
 
 describe('editTranslateParts', () => {
   it('replaces a unique substring inside one chunk', () => {
@@ -48,5 +48,26 @@ describe('editTranslateParts', () => {
     expect(parts[0]).toContain('Алиса');
     expect(applyReviewEdit(parts, original, parts[0]!, '')).toBe('err: empty translation');
     expect(parts[0]).toContain('Алиса');
+  });
+});
+
+describe('applyReviewedTranslation', () => {
+  const pair = {
+    index: 0,
+    original: 'Alice',
+    translation: 'Алиса',
+  };
+
+  it('snapshots the first translation and keeps it across later edits', () => {
+    const once = applyReviewedTranslation(pair, 'Алиска');
+    expect(once.preReview).toBe('Алиса');
+    expect(once.translation).toBe('Алиска');
+    const twice = applyReviewedTranslation(once, 'Алисе');
+    expect(twice.preReview).toBe('Алиса');
+    expect(twice.translation).toBe('Алисе');
+  });
+
+  it('returns the same object when the text did not change', () => {
+    expect(applyReviewedTranslation(pair, 'Алиса')).toBe(pair);
   });
 });

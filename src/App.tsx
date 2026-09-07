@@ -21,6 +21,7 @@ import {
 import { detectLocale, detectTheme, persistLocale, persistTheme, type Locale, type Theme } from './storage/prefs.ts';
 import { useJob } from './state/useJob.ts';
 import { AppHeader, Stepper, type Step } from './ui/Shell.tsx';
+import { stepForPhase } from './ui/steps.ts';
 import { SetupView } from './ui/SetupView.tsx';
 import { SettingsView } from './ui/SettingsView.tsx';
 import { BriefView } from './ui/BriefView.tsx';
@@ -202,18 +203,11 @@ export default function App() {
     }
   }, [pinned, running, snap.liveIndex, snap.translated, snap.chunks.length]);
 
-  const step: Step =
-    snap.phase === 'idle'
-      ? setupStep === 'settings' && book
-        ? 'settings'
-        : 'book'
-      : snap.phase === 'style' || snap.phase === 'review'
-        ? 'brief'
-        : snap.phase === 'verify' || snap.phase === 'verifyReview'
-          ? 'verify'
-          : snap.phase === 'glossary' || snap.phase === 'glossaryReview'
-            ? 'glossary'
-            : 'run';
+  const step: Step = stepForPhase(
+    snap.phase,
+    { setupStep, hasBook: Boolean(book) },
+    snap.pausedDuring,
+  );
 
   const onIndexChange = (i: number, pin: boolean) => {
     setPreviewIndex(i);
@@ -357,7 +351,7 @@ export default function App() {
     </>
   );
 
-  const wide = step === 'run' && snap.phase !== 'done';
+  const wide = (step === 'run' || step === 'translateReview') && snap.phase !== 'done';
   const verifyLayout = step === 'verify';
 
   return (

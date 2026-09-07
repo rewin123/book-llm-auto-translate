@@ -189,6 +189,10 @@ export function RunView(props: Props) {
             index={props.index}
             pinned={props.pinned}
             onIndexChange={props.onIndexChange}
+            reviewDiff={
+              reviewing ||
+              ((snap.phase === 'paused' || snap.phase === 'error') && snap.pausedDuring === 'translateReview')
+            }
           />
 
           <GlossaryTable entries={snap.glossary} readOnly />

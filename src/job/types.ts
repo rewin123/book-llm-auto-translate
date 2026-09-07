@@ -51,6 +51,8 @@ export type TranslatedPair = {
   ms?: number;
   /** Every attempt for this chunk (including failed validation retries). */
   llmCalls?: LlmCallAttempt[];
+  /** Translation before any seam-review edit. Absent when the review pass did not change this chunk. */
+  preReview?: string;
 };
 
 /**

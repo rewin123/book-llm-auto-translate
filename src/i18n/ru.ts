@@ -16,6 +16,7 @@ export const ru: Messages = {
   stepVerify: 'Проверка',
   stepGlossary: 'Глоссарий',
   stepTranslate: 'Перевод',
+  stepReview: 'Ревью',
 
   dropTitle: 'Перетащите книгу сюда',
   dropHint: 'EPUB, FB2 или FB2.ZIP · файл не уходит с устройства',
@@ -182,6 +183,10 @@ export const ru: Messages = {
   compareOriginal: 'Только оригинал',
   original: 'Оригинал · {lang}',
   translation: 'Перевод · {lang}',
+  reviewBefore: 'До ревью',
+  reviewAfter: 'После ревью',
+  reviewEdited: 'правлен',
+  reviewNoEdits: 'пока без правок',
   validated: 'проверка пройдена',
   chunkHeading: 'Фрагмент {n} из {total}',
   chunkPending: 'ещё не переведён',
