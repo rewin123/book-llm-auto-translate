@@ -68,7 +68,7 @@ function lcsDiff(a: string[], b: string[]): DiffOp[] {
       out.push({ type: 'eq', text: a[i - 1]! });
       i -= 1;
       j -= 1;
-    } else if (dp[i - 1]![j]! >= dp[i]![j - 1]!) {
+    } else if (dp[i - 1]![j]! > dp[i]![j - 1]!) {
       out.push({ type: 'del', text: a[i - 1]! });
       i -= 1;
     } else {
