@@ -14,6 +14,7 @@ export const en = {
   stepVerify: 'Verify',
   stepGlossary: 'Glossary',
   stepTranslate: 'Translate',
+  stepReview: 'Review',
 
   dropTitle: 'Drop a book here',
   dropHint: 'EPUB, FB2 or FB2.ZIP · never leaves this device',
@@ -181,6 +182,10 @@ export const en = {
   compareOriginal: 'Original only',
   original: 'Original · {lang}',
   translation: 'Translation · {lang}',
+  reviewBefore: 'Before review',
+  reviewAfter: 'After review',
+  reviewEdited: 'edited',
+  reviewNoEdits: 'no edits yet',
   validated: 'checks passed',
   chunkHeading: 'Chunk {n} of {total}',
   chunkPending: 'not translated yet',

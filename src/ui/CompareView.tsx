@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Chunk } from '../ebook/types.ts';
 import type { LlmCallAttempt, TranslatedPair } from '../job/types.ts';
 import { fmt, shortLanguageName, useT } from '../i18n/index.ts';
-import { comparePaneMarkdown } from './compareText.ts';
+import { comparePaneMarkdown, reviewDiffHtml } from './compareText.ts';
 import { markupToSafeHtml } from './sanitize.ts';
 import { CheckIcon, ChevronLeft, ChevronRight, InfoIcon, WarnIcon } from './icons.tsx';
 
@@ -18,6 +18,8 @@ type Props = {
   index: number;
   onIndexChange: (i: number, pinned: boolean) => void;
   pinned: boolean;
+  /** Side-by-side original translation vs seam-review rewrite, with a word diff. */
+  reviewDiff?: boolean;
 };
 
 /**
@@ -35,6 +37,7 @@ export function CompareView(props: Props) {
   const chunk = props.chunks[idx];
   const pair = props.translated.find((p) => p.index === idx);
   const panes = chunk ? comparePaneMarkdown(chunk, pair) : null;
+  const review = props.reviewDiff && pair ? reviewDiffHtml(pair) : null;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -70,6 +73,10 @@ export function CompareView(props: Props) {
             <span className="pill warn">
               <WarnIcon size={12} />
               {fmt(t.chunkKept, { lang: shortLanguageName(props.sourceLang, locale) })}
+            </span>
+          ) : review ? (
+            <span className={review.changed ? 'pill ok' : 'pill'}>
+              {review.changed ? t.reviewEdited : t.reviewNoEdits}
             </span>
           ) : ready ? (
             <span className="pill ok">
@@ -140,19 +147,29 @@ export function CompareView(props: Props) {
         {showOriginal && (
           <section key={`orig-${idx}`}>
             <div className="pane-cap">
-              <span>{fmt(t.original, { lang: shortLanguageName(props.sourceLang, locale) })}</span>
+              <span>
+                {review
+                  ? t.reviewBefore
+                  : fmt(t.original, { lang: shortLanguageName(props.sourceLang, locale) })}
+              </span>
             </div>
             <article
               className="page"
-              dangerouslySetInnerHTML={{ __html: markupToSafeHtml(panes.original) }}
+              dangerouslySetInnerHTML={{
+                __html: review ? review.before : markupToSafeHtml(panes.original),
+              }}
             />
           </section>
         )}
         {showTranslation && (
           <section key={`tr-${idx}`}>
             <div className="pane-cap">
-              <span>{fmt(t.translation, { lang: shortLanguageName(props.targetLang, locale) })}</span>
-              {ready && !kept && (
+              <span>
+                {review
+                  ? t.reviewAfter
+                  : fmt(t.translation, { lang: shortLanguageName(props.targetLang, locale) })}
+              </span>
+              {ready && !kept && !review && (
                 <span className="ok" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   <CheckIcon size={12} />
                   {t.validated}
@@ -160,10 +177,10 @@ export function CompareView(props: Props) {
               )}
             </div>
             <article
-              key={`tr-html-${idx}-${ready ? 'ready' : 'pending'}`}
+              key={`tr-html-${idx}-${ready ? 'ready' : 'pending'}-${review?.changed ? 'diff' : 'same'}`}
               className={`page ${ready ? '' : 'is-pending'}`}
               dangerouslySetInnerHTML={{
-                __html: markupToSafeHtml(panes.translation),
+                __html: review ? review.after : markupToSafeHtml(panes.translation),
               }}
             />
           </section>

@@ -2,8 +2,9 @@ import { Fragment } from 'react';
 import type { Locale, Theme } from '../storage/prefs.ts';
 import { useT } from '../i18n/index.ts';
 import { MoonIcon, SunIcon, CheckIcon, GithubIcon } from './icons.tsx';
+import type { Step } from './steps.ts';
 
-export type Step = 'book' | 'settings' | 'brief' | 'verify' | 'glossary' | 'run';
+export type { Step };
 
 const GITHUB_URL = 'https://github.com/rewin123/book-llm-auto-translate';
 
@@ -71,6 +72,7 @@ export function Stepper({ current }: { current: Step }) {
     { id: 'verify', label: t.stepVerify },
     { id: 'glossary', label: t.stepGlossary },
     { id: 'run', label: t.stepTranslate },
+    { id: 'translateReview', label: t.stepReview },
   ];
   const currentAt = steps.findIndex((s) => s.id === current);
 

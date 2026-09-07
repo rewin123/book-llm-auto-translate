@@ -6,7 +6,7 @@ import { mergeGlossary, upsertGlossary, type GlossaryEntry } from '../glossary/i
 import { createLlmClient, stripHarnessMarkers } from '../llm/index.ts';
 import type { StoredProviders } from '../llm/presets.ts';
 import { runReviewAgent } from '../review/agent.ts';
-import { applyReviewEdit } from '../review/edit.ts';
+import { applyReviewEdit, applyReviewedTranslation } from '../review/edit.ts';
 import { runStyleAgent } from '../style/agent.ts';
 import { longestChunkIndex } from '../verify/chunk.ts';
 import { editStyleGuideline } from '../verify/guide.ts';
@@ -62,6 +62,7 @@ export type JobSnapshot = {
   verifyPair: TranslatedPair | null;
   reviewIndex: number;
   reviewTotal: number;
+  pausedDuring: 'style' | 'glossary' | 'translate' | 'verify' | 'translateReview' | null;
 };
 
 export type RunnerListener = (s: JobSnapshot) => void;
@@ -151,6 +152,7 @@ export class JobRunner {
       verifyPair: this.verifyPair,
       reviewIndex: this.reviewIndex,
       reviewTotal: this.reviewTotal,
+      pausedDuring: this.pausedDuring,
     });
   }
 
@@ -726,6 +728,19 @@ export class JobRunner {
     this.index = this.translated.length;
   }
 
+  private commitReviewSlice(slice: Chunk[], parts: string[]) {
+    let changed = false;
+    for (let i = 0; i < slice.length; i++) {
+      const pair = this.translated.find((t) => t.index === slice[i]!.index);
+      if (!pair) continue;
+      const next = applyReviewedTranslation(pair, stripHarnessMarkers(parts[i]!));
+      if (next === pair) continue;
+      this.commitPair(next);
+      changed = true;
+    }
+    if (changed) this.emit();
+  }
+
   private invalidateReviewWindows(indices: number[]) {
     if (!this.book || indices.length === 0) return;
     const hit = new Set(indices);
@@ -828,23 +843,15 @@ export class JobRunner {
       onRetry: (info) => this.logRetry(info),
       tools: {
         readTranslate: () => parts.join(''),
-        editTranslate: (oldStr, newStr) => applyReviewEdit(parts, originalJoined, oldStr, newStr),
+        editTranslate: (oldStr, newStr) => {
+          const result = applyReviewEdit(parts, originalJoined, oldStr, newStr);
+          if (result === 'ok') this.commitReviewSlice(slice, parts);
+          return result;
+        },
       },
     });
 
-    for (let i = 0; i < slice.length; i++) {
-      const chunk = slice[i]!;
-      const pair = this.translated.find((t) => t.index === chunk.index);
-      if (!pair) continue;
-      const next = parts[i]!;
-      if (next === pair.translation) continue;
-      this.commitPair({
-        ...pair,
-        translation: next,
-        usedOriginal: next === pair.original ? pair.usedOriginal : false,
-        reason: next === pair.original ? pair.reason : undefined,
-      });
-    }
+    this.commitReviewSlice(slice, parts);
 
     this.reviewedByWindow[key] = true;
     this.reviewIndex = Object.keys(this.reviewedByWindow).length;
