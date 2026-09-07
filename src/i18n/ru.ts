@@ -16,6 +16,7 @@ export const ru: Messages = {
   stepVerify: 'Проверка',
   stepGlossary: 'Глоссарий',
   stepTranslate: 'Перевод',
+  stepReview: 'Ревью',
 
   dropTitle: 'Перетащите книгу сюда',
   dropHint: 'EPUB, FB2 или FB2.ZIP · файл не уходит с устройства',

@@ -62,6 +62,7 @@ export type JobSnapshot = {
   verifyPair: TranslatedPair | null;
   reviewIndex: number;
   reviewTotal: number;
+  pausedDuring: 'style' | 'glossary' | 'translate' | 'verify' | 'translateReview' | null;
 };
 
 export type RunnerListener = (s: JobSnapshot) => void;
@@ -151,6 +152,7 @@ export class JobRunner {
       verifyPair: this.verifyPair,
       reviewIndex: this.reviewIndex,
       reviewTotal: this.reviewTotal,
+      pausedDuring: this.pausedDuring,
     });
   }
 

@@ -14,6 +14,7 @@ export const en = {
   stepVerify: 'Verify',
   stepGlossary: 'Glossary',
   stepTranslate: 'Translate',
+  stepReview: 'Review',
 
   dropTitle: 'Drop a book here',
   dropHint: 'EPUB, FB2 or FB2.ZIP · never leaves this device',
