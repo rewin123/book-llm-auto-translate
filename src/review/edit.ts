@@ -60,3 +60,23 @@ export function applyReviewEdit(
   for (let i = 0; i < parts.length; i++) parts[i] = result.parts[i]!;
   return 'ok';
 }
+
+/** Keep the first pre-review snapshot when the seam pass rewrites a chunk. */
+export function applyReviewedTranslation<
+  T extends {
+    translation: string;
+    original: string;
+    usedOriginal?: boolean;
+    reason?: string;
+    preReview?: string;
+  },
+>(pair: T, next: string): T {
+  if (next === pair.translation) return pair;
+  return {
+    ...pair,
+    preReview: pair.preReview ?? pair.translation,
+    translation: next,
+    usedOriginal: next === pair.original ? pair.usedOriginal : false,
+    reason: next === pair.original ? pair.reason : undefined,
+  };
+}
