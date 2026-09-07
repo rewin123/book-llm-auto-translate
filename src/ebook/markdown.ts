@@ -311,7 +311,9 @@ function inlineToXhtml(s: string): string {
   t = t.replace(/__(.+?)__/g, '<strong>$1</strong>');
   t = t.replace(/_(.+?)_/g, '<em>$1</em>');
   t = t.replace(/%%BT(\d+)%%/g, (_all, i) => slots[Number(i)]!);
-  t = t.replace(/  \n/g, '<br/>\n');
+  // Soft line breaks must stay visible in EPUB: a raw newline inside <p> is
+  // just whitespace and readers collapse it. Dialogue and verse rely on this.
+  t = t.replace(/\n/g, '<br/>\n');
   return t;
 }
 
@@ -326,6 +328,10 @@ function isHeading(line: string): boolean {
 function isHr(line: string): boolean {
   const t = line.trim();
   return /^(-{3,}|\*{3,}|_{3,})$/.test(t);
+}
+
+function isDashLine(line: string): boolean {
+  return /^\s*- /.test(line);
 }
 
 function isListItem(line: string): boolean {
@@ -378,17 +384,32 @@ export function markdownToXhtmlFragment(md: string): string {
       out.push(`<blockquote>${markdownToXhtmlFragment(buf.join('\n'))}</blockquote>`);
       continue;
     }
+    // Literary dialogue is written as "- replica" lines. Treating those as
+    // <ul><li> strips the dash and, in many EPUB readers, the line break.
+    if (isDashLine(line)) {
+      while (i < lines.length && isDashLine(lines[i]!)) {
+        out.push(`<p>${inlineToXhtml(lines[i]!.trim())}</p>`);
+        i += 1;
+      }
+      continue;
+    }
     if (isListItem(line)) {
       const ordered = /^\s*\d+\. /.test(line);
       const tag = ordered ? 'ol' : 'ul';
       const items: string[] = [];
-      while (i < lines.length && (isListItem(lines[i]!) || (/^\s+\S/.test(lines[i]!) && items.length > 0))) {
+      while (
+        i < lines.length &&
+        ((isListItem(lines[i]!) && !isDashLine(lines[i]!)) ||
+          (/^\s+\S/.test(lines[i]!) && items.length > 0 && !isDashLine(lines[i]!)))
+      ) {
         const item = lines[i]!.replace(/^(\s*[-*+] |\s*\d+\. )/, '');
         if (isListItem(lines[i]!)) items.push(item);
         else items[items.length - 1] = `${items[items.length - 1]}\n${lines[i]!.trim()}`;
         i += 1;
       }
-      out.push(`<${tag}>${items.map((it) => `<li>${inlineToXhtml(it)}</li>`).join('')}</${tag}>`);
+      out.push(
+        `<${tag}>\n${items.map((it) => `<li><p>${inlineToXhtml(it)}</p></li>`).join('\n')}\n</${tag}>`,
+      );
       continue;
     }
     const buf: string[] = [];
