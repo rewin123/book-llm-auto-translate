@@ -27,6 +27,7 @@ import { BriefView } from './ui/BriefView.tsx';
 import { VerifyView } from './ui/VerifyView.tsx';
 import { RunView } from './ui/RunView.tsx';
 import { DoneView } from './ui/DoneView.tsx';
+import { liveFollowIndex } from './ui/compareText.ts';
 import { ResumeBanner } from './ui/ResumeBanner.tsx';
 import { DetailsDrawer } from './ui/DetailsDrawer.tsx';
 import type { BookInfo } from './ui/BookDrop.tsx';
@@ -197,9 +198,9 @@ export default function App() {
 
   useEffect(() => {
     if (!pinned && running && snap.translated.length > 0) {
-      setPreviewIndex(Math.min(snap.liveIndex, Math.max(snap.chunks.length - 1, 0)));
+      setPreviewIndex(liveFollowIndex(snap.liveIndex, snap.translated, snap.chunks.length));
     }
-  }, [pinned, running, snap.liveIndex, snap.translated.length, snap.chunks.length]);
+  }, [pinned, running, snap.liveIndex, snap.translated, snap.chunks.length]);
 
   const step: Step =
     snap.phase === 'idle'
