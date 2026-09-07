@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Chunk } from '../ebook/types.ts';
 import type { LlmCallAttempt, TranslatedPair } from '../job/types.ts';
 import { fmt, shortLanguageName, useT } from '../i18n/index.ts';
-import { comparePaneMarkdown, reviewDiffHtml } from './compareText.ts';
+import { comparePaneMarkdown, liveFollowIndex, reviewDiffHtml } from './compareText.ts';
 import { markupToSafeHtml } from './sanitize.ts';
 import { CheckIcon, ChevronLeft, ChevronRight, InfoIcon, WarnIcon } from './icons.tsx';
 
@@ -34,6 +34,7 @@ export function CompareView(props: Props) {
 
   const max = Math.max(props.chunks.length - 1, 0);
   const idx = Math.min(Math.max(props.index, 0), max);
+  const followIdx = liveFollowIndex(props.liveIndex, props.translated, props.chunks.length);
   const chunk = props.chunks[idx];
   const pair = props.translated.find((p) => p.index === idx);
   const panes = chunk ? comparePaneMarkdown(chunk, pair) : null;
@@ -133,9 +134,9 @@ export function CompareView(props: Props) {
           <button
             className="btn btn-sm"
             type="button"
-            onClick={() => props.onIndexChange(Math.max(props.liveIndex - 1, 0), false)}
+            onClick={() => props.onIndexChange(followIdx, false)}
           >
-            {fmt(t.jumpLive, { n: props.liveIndex })}
+            {fmt(t.jumpLive, { n: followIdx + 1 })}
           </button>
         </div>
       )}
