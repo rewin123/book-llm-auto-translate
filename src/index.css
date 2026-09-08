@@ -348,6 +348,101 @@ textarea {
   resize: vertical;
 }
 
+.model-combo {
+  position: relative;
+}
+
+.model-combo-search {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.model-combo-input {
+  padding-left: 30px;
+  padding-right: 32px;
+}
+
+.model-combo-chevron {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.model-combo-chevron:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.model-combo-menu {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow);
+}
+
+.model-combo-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.model-combo-option.is-active {
+  background: var(--bg-2);
+}
+
+.model-combo-option.is-selected {
+  font-weight: 600;
+}
+
+.model-combo-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-combo-price {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.model-combo-empty {
+  padding: 8px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
 .btn {
   border: 1px solid var(--line);
   border-radius: var(--radius-control);

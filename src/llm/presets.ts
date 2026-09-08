@@ -8,6 +8,11 @@ export type ProviderId =
   | 'xai'
   | 'custom';
 
+/** DeepSeek V4.1 Flash beta (API id expires 2026-09-10). */
+export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4.1-flash-expires-on-0910';
+/** Previous preset default; loadProviders upgrades this stored id. */
+export const DEEPSEEK_PREVIOUS_DEFAULT_MODEL = 'deepseek-v4-flash';
+
 export type CorsStatus = 'ok' | 'often-blocked' | 'local';
 
 export type ProviderTier = 'demo' | 'free' | 'paid' | 'local';
@@ -79,7 +84,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     id: 'deepseek',
     label: 'DeepSeek',
     baseURL: 'https://api.deepseek.com/v1',
-    defaultModel: 'deepseek-v4-flash',
+    defaultModel: DEEPSEEK_DEFAULT_MODEL,
     cors: 'ok',
     corsNote: 'Echoes Origin (measured 2026-07-30).',
     needsKey: true,
@@ -134,7 +139,7 @@ export const defaultStoredProviders = (): StoredProviders => ({
   activeId: 'deepseek',
   apiKeys: {},
   models: {
-    deepseek: 'deepseek-v4-flash',
+    deepseek: DEEPSEEK_DEFAULT_MODEL,
     groq: 'openai/gpt-oss-120b',
     nvidia: 'nvidia/nemotron-3-nano-30b-a3b',
     openrouter: 'nvidia/nemotron-3-nano-30b-a3b:free',

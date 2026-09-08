@@ -8,7 +8,8 @@ import {
 import { listModels, type CatalogModel } from '../llm/modelsDev.ts';
 import { testConnection, type ConnectionResult } from '../llm/testConnection.ts';
 import { fmt, useT, type Messages } from '../i18n/index.ts';
-import { AlertIcon, CheckIcon, ChevronRight, SearchIcon } from './icons.tsx';
+import { AlertIcon, CheckIcon, ChevronRight } from './icons.tsx';
+import { ModelCombobox } from './ModelCombobox.tsx';
 
 const TIER_ORDER: ProviderTier[] = ['demo', 'free', 'paid', 'local'];
 
@@ -31,24 +32,39 @@ export function ModelPicker({ stored, setStored, connection, setConnection, disa
   const { t } = useT();
   const listId = useId();
   const [models, setModels] = useState<CatalogModel[]>([]);
+  const [modelsFor, setModelsFor] = useState<ProviderId | null>(null);
   const [testing, setTesting] = useState(false);
 
   const preset = PROVIDER_PRESETS.find((p) => p.id === stored.activeId) ?? PROVIDER_PRESETS[0]!;
   const model = stored.models[preset.id] ?? preset.defaultModel;
+  const apiKey = stored.apiKeys[preset.id] ?? '';
+  const visibleModels = modelsFor === preset.id ? models : [];
+  const loadingModels = modelsFor !== preset.id;
 
-  // The catalog is already fetched and cached for pricing; here it also stops
-  // the model name from having to be typed from memory.
+  // Curated + models.dev first; `/models` joins in once a key (or custom URL) is set.
   useEffect(() => {
     let live = true;
-    void listModels(preset.id).then((list) => {
-      if (live) setModels(list);
-    });
+    void listModels(preset.id, {
+      baseURL: preset.id === 'custom' ? stored.customBaseURL : preset.baseURL,
+      apiKey,
+      headers: preset.headers,
+    })
+      .then((list) => {
+        if (!live) return;
+        setModels(list);
+        setModelsFor(preset.id);
+      })
+      .catch(() => {
+        if (!live) return;
+        setModels([]);
+        setModelsFor(preset.id);
+      });
     return () => {
       live = false;
     };
-  }, [preset.id]);
+  }, [preset.id, preset.baseURL, preset.headers, apiKey, stored.customBaseURL]);
 
-  const priced = models.find((m) => m.id === model);
+  const priced = visibleModels.find((m) => m.id === model);
 
   const runTest = async () => {
     setTesting(true);
@@ -98,43 +114,18 @@ export function ModelPicker({ stored, setStored, connection, setConnection, disa
           <label htmlFor={`${listId}-model`}>
             {t.model} <span style={{ opacity: 0.75 }}>— {t.modelHint}</span>
           </label>
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <span
-              style={{
-                position: 'absolute',
-                left: 10,
-                display: 'flex',
-                color: 'var(--muted)',
-                pointerEvents: 'none',
-              }}
-            >
-              <SearchIcon />
-            </span>
-            <input
-              id={`${listId}-model`}
-              list={models.length > 0 ? listId : undefined}
-              value={model}
-              disabled={disabled}
-              style={{ paddingLeft: 30 }}
-              onChange={(e) => {
-                setConnection(null);
-                setStored((s) => ({ ...s, models: { ...s.models, [s.activeId]: e.target.value } }));
-              }}
-            />
-          </div>
-          {models.length > 0 && (
-            <datalist id={listId}>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.inputPerMillion === 0 && m.outputPerMillion === 0
-                    ? t.costFree
-                    : m.inputPerMillion != null && m.outputPerMillion != null
-                      ? fmt(t.modelPer, { in: m.inputPerMillion, out: m.outputPerMillion })
-                      : ''}
-                </option>
-              ))}
-            </datalist>
-          )}
+          <ModelCombobox
+            key={preset.id}
+            id={`${listId}-model`}
+            value={model}
+            models={visibleModels}
+            loading={loadingModels}
+            disabled={disabled}
+            onChange={(next) => {
+              setConnection(null);
+              setStored((s) => ({ ...s, models: { ...s.models, [s.activeId]: next } }));
+            }}
+          />
           {priced?.inputPerMillion === 0 && priced.outputPerMillion === 0 ? (
             <p className="hint" style={{ margin: '6px 0 0' }}>
               {t.costFree}
@@ -170,7 +161,7 @@ export function ModelPicker({ stored, setStored, connection, setConnection, disa
                 type="password"
                 autoComplete="off"
                 spellCheck={false}
-                value={stored.apiKeys[preset.id] ?? ''}
+                value={apiKey}
                 disabled={disabled}
                 onChange={(e) => {
                   setConnection(null);
@@ -184,7 +175,7 @@ export function ModelPicker({ stored, setStored, connection, setConnection, disa
                 className="btn"
                 type="button"
                 style={{ flexShrink: 0 }}
-                disabled={disabled || testing || !stored.apiKeys[preset.id]}
+                disabled={disabled || testing || !apiKey}
                 onClick={() => void runTest()}
               >
                 {testing ? t.testing : t.testConnection}

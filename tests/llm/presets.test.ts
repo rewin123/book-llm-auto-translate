@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CORS_OPENROUTER_FALLBACK, PROVIDER_PRESETS } from '../../src/llm/presets.ts';
+import { CORS_OPENROUTER_FALLBACK, DEEPSEEK_DEFAULT_MODEL, PROVIDER_PRESETS } from '../../src/llm/presets.ts';
 import { isZeroCost } from '../../src/llm/modelsDev.ts';
 
 describe('free provider presets', () => {
@@ -24,5 +24,11 @@ describe('free provider presets', () => {
     expect(isZeroCost('openrouter', 'nvidia/nemotron-3-nano-30b-a3b:free')).toBe(true);
     expect(isZeroCost('openrouter', 'deepseek/deepseek-v4-flash')).toBe(false);
     expect(isZeroCost('deepseek', 'deepseek-v4-flash')).toBe(false);
+    expect(isZeroCost('deepseek', DEEPSEEK_DEFAULT_MODEL)).toBe(false);
+  });
+
+  it('defaults DeepSeek to the V4.1 Flash beta id', () => {
+    const deepseek = PROVIDER_PRESETS.find((p) => p.id === 'deepseek');
+    expect(deepseek?.defaultModel).toBe(DEEPSEEK_DEFAULT_MODEL);
   });
 });
