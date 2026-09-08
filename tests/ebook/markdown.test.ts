@@ -67,6 +67,26 @@ Alice was *very* tired.
     const doc = parseXml(`<div xmlns="http://www.w3.org/1999/xhtml">${xhtml}</div>`);
     expect(findEl(doc, 'h1')?.textContent).toBe('Title');
   });
+
+  it('keeps dash-prefixed dialogue as separate paragraphs', () => {
+    const xhtml = markdownToXhtmlFragment('- XXX\n- YYY\n- ZZZ\n');
+    expect(xhtml).toBe('<p>- XXX</p>\n<p>- YYY</p>\n<p>- ZZZ</p>');
+  });
+
+  it('keeps a single newline inside a paragraph as a line break', () => {
+    const xhtml = markdownToXhtmlFragment('— Hello, she said.\n— Who are you?\n');
+    expect(xhtml).toBe('<p>— Hello, she said.<br/>\n— Who are you?</p>');
+  });
+
+  it('still emits real ordered and asterisk lists as lists', () => {
+    const ordered = markdownToXhtmlFragment('1. one\n2. two\n');
+    expect(ordered).toContain('<ol>');
+    expect(ordered).toContain('<li><p>one</p></li>');
+    expect(ordered).toContain('<li><p>two</p></li>');
+    const bullets = markdownToXhtmlFragment('* Apple\n* Orange\n');
+    expect(bullets).toContain('<ul>');
+    expect(bullets).toContain('<li><p>Apple</p></li>');
+  });
 });
 
 describe('reverseMarkdownText', () => {

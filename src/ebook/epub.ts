@@ -13,9 +13,14 @@ import type { BookImage, PackedBook, ParsedBook, TranslateLangs } from './types.
 
 const MIME = 'application/epub+zip';
 const CSS = `body { font-family: Georgia, "Times New Roman", serif; line-height: 1.55; margin: 1.25em; }
+h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, pre { display: block; }
 h1, h2, h3 { font-weight: 700; line-height: 1.25; }
+p { margin: 0.6em 0; }
 img { max-width: 100%; height: auto; }
 blockquote { margin-left: 1em; padding-left: 0.8em; border-left: 2px solid #ccc; }
+ul, ol { margin: 0.6em 0; padding-left: 1.4em; }
+li { display: list-item; margin: 0.2em 0; }
+li p { margin: 0.15em 0; }
 `;
 
 export function zipPath(root: string, href: string): string {

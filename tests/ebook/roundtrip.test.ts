@@ -78,6 +78,22 @@ describe('EPUB markdown round-trip', () => {
     const chapter = new TextDecoder().decode(await readZipEntry(packed.bytes, 'OEBPS/chapter-001.xhtml'));
     expect(chapter).not.toContain('<h1>Chapter ');
   });
+
+  it('keeps dash-prefixed dialogue on separate lines in the packed EPUB', async () => {
+    const packed = await packEpubFromMarkdown({
+      title: 'Dialogues',
+      markdown: '- XXX\n- YYY\n- ZZZ\n',
+      images: [],
+      targetLang: 'ru',
+      outName: 'dialogue.ru.epub',
+    });
+    const chapter = new TextDecoder().decode(await readZipEntry(packed.bytes, 'OEBPS/chapter-001.xhtml'));
+    expect(chapter).toContain('<p>- XXX</p>');
+    expect(chapter).toContain('<p>- YYY</p>');
+    expect(chapter).toContain('<p>- ZZZ</p>');
+    expect(chapter).not.toMatch(/<p>- XXX[^<]*YYY/);
+    expect(chapter).not.toContain('<ul>');
+  });
 });
 
 describe('FB2 → markdown → EPUB', () => {
