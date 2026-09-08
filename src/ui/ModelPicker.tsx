@@ -115,6 +115,7 @@ export function ModelPicker({ stored, setStored, connection, setConnection, disa
             {t.model} <span style={{ opacity: 0.75 }}>— {t.modelHint}</span>
           </label>
           <ModelCombobox
+            key={preset.id}
             id={`${listId}-model`}
             value={model}
             models={visibleModels}
