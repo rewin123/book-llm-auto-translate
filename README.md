@@ -87,7 +87,7 @@ These live on the **Settings** step (remembered in `booktrans.v1.setup`). Pairs:
 Keys are BYOK. The page talks to the provider **directly** from the browser.
 
 1. Pick a provider. The list is grouped: **Free / rate-limited**, paid APIs, then local.
-2. Pick a model from the [models.dev](https://models.dev) catalog, or type one.
+2. Search the model dropdown (the provider’s `/models` list when a key is present, plus [models.dev](https://models.dev) prices), or type an id.
 3. Paste a key if the provider needs one.
 4. Click **Test connection** — a short request that checks CORS and latency.
 
@@ -119,7 +119,7 @@ Other Nemotron ids on OpenRouter: `nvidia/nemotron-3.5-lightning:free`, `nvidia/
 | NVIDIA NIM | `https://integrate.api.nvidia.com/v1` | often blocked | yes, free | Nemotron. Prefer OpenRouter `:free` from a web app. |
 | Groq | `https://api.groq.com/openai/v1` | ok | yes, free tier | Fast. Rate-limited developer plan. |
 | OpenRouter | `https://openrouter.ai/api/v1` | ok (`ACAO: *`) | yes | Paid models plus `:free` (Nemotron, Llama, …). |
-| DeepSeek | `https://api.deepseek.com/v1` | ok | yes | Default `deepseek-v4-flash`. Echoes Origin (2026-07-30). |
+| DeepSeek | `https://api.deepseek.com/v1` | ok | yes | Default `deepseek-v4.1-flash-expires-on-0910` (V4.1 Flash beta, until 2026-09-10). Echoes Origin (2026-07-30). |
 | OpenAI | `https://api.openai.com/v1` | ok | yes | Default `gpt-4.1-mini`. |
 | xAI / Grok | `https://api.x.ai/v1` | often blocked | yes | Prefer OpenRouter `x-ai/grok-*`. |
 | Custom | e.g. `http://localhost:11434/v1` | local | no | Enable CORS (`OLLAMA_ORIGINS=*`). |
