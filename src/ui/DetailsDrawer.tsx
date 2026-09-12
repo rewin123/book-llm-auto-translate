@@ -24,8 +24,11 @@ export function DetailsDrawer({ events }: { events: JobEvent[] }) {
       </summary>
       <div className="body">
         <div className="log">
+          {/* Keyed from the end, so an arriving event does not shift every
+              existing row's key and remount the list — which used to collapse a
+              text selection the moment the next chunk finished. */}
           {[...events].reverse().map((e, i) => (
-            <article key={`${e.ts}-${i}`}>
+            <article key={`${e.ts}-${events.length - 1 - i}`}>
               <div className={e.kind === 'error' ? 'error' : undefined}>
                 <time dateTime={new Date(e.ts).toISOString()}>
                   {new Date(e.ts).toLocaleTimeString(locale)}

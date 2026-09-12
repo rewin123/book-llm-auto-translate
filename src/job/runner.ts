@@ -104,6 +104,15 @@ export class JobRunner {
    * translated — and packed — the other.
    */
   private prepareToken = 0;
+  /**
+   * When the clock started for the current pass, or null while idle.
+   *
+   * `elapsedMs` used to be the *sum* of per-chunk latencies, which under
+   * `concurrency: 4` counted four windows' waiting as four times the time that
+   * actually passed — a 20-minute run was reported as "1 h 30 m" — and the review
+   * pass added its whole window durations to the same counter.
+   */
+  private activeSince: number | null = null;
 
   listener: RunnerListener;
   logLimit: number;
@@ -121,6 +130,21 @@ export class JobRunner {
   setLogLimit(limit: number) {
     this.logLimit = limit;
     this.emit();
+  }
+
+  /** Wall-clock time spent on this job, including the pass running right now. */
+  get elapsedTotalMs(): number {
+    return this.elapsedMs + (this.activeSince === null ? 0 : Date.now() - this.activeSince);
+  }
+
+  private startClock() {
+    if (this.activeSince === null) this.activeSince = Date.now();
+  }
+
+  private stopClock() {
+    if (this.activeSince === null) return;
+    this.elapsedMs += Date.now() - this.activeSince;
+    this.activeSince = null;
   }
 
   get keptOriginal(): number {
@@ -148,7 +172,7 @@ export class JobRunner {
       title: this.book?.title ?? '',
       failure: this.failure,
       trialLimit: this.trialLimit,
-      elapsedMs: this.elapsedMs,
+      elapsedMs: this.elapsedTotalMs,
       etaMs: etaFromTimings(
         this.translated.map((t) => t.ms ?? 0),
         this.phase === 'translateReview'
@@ -202,11 +226,15 @@ export class JobRunner {
       title: this.book.title,
       format: this.book.format,
       settings: this.settings,
-      chunks: this.book.chunks,
+      // Snapshots, not the live arrays. IndexedDB clones at `put` time, which is
+      // after the queued writes drain, so a record could pair a newer
+      // `translated` with an older `index` and `phase` — and a resume then
+      // reasoned from a stale count against fresh data.
+      chunks: [...this.book.chunks],
       styleGuide: this.styleGuide,
-      glossary: this.glossary,
-      glossaryByBig: this.glossaryByBig,
-      glossarySeed: this.glossarySeed,
+      glossary: [...this.glossary],
+      glossaryByBig: { ...this.glossaryByBig },
+      glossarySeed: [...this.glossarySeed],
       // Without `llmCalls`. Each one holds the full instructions, the full user
       // message (glossary plus the two previous chunks in both languages) and the
       // full response — roughly 40 kB per chunk — and a checkpoint is rewritten
@@ -217,12 +245,12 @@ export class JobRunner {
       translated: this.translated.map(({ llmCalls: _calls, ...pair }) => pair),
       index: this.index,
       phase: this.phase,
-      elapsedMs: this.elapsedMs,
+      elapsedMs: this.elapsedTotalMs,
       savedAt: Date.now(),
       pausedDuring: this.pausedDuring ?? undefined,
       verifyIndex: this.verifyIndex,
       verifyPair: this.verifyPair ?? undefined,
-      reviewedByWindow: this.reviewedByWindow,
+      reviewedByWindow: { ...this.reviewedByWindow },
     };
     this.persistChain = this.persistChain.then(
       () => this.writeCheckpoint(cp),
@@ -327,6 +355,7 @@ export class JobRunner {
       concurrency: this.concurrency,
       glossaryBatch: this.glossaryBatch,
       reviewBatch: this.reviewBatch,
+      targetLang: this.settings?.targetLang,
     });
     this.emit();
   }
@@ -428,6 +457,7 @@ export class JobRunner {
   beginChatTurn(): AbortController {
     this.abort?.abort();
     this.abort = new AbortController();
+    this.startClock();
     return this.abort;
   }
 
@@ -443,6 +473,7 @@ export class JobRunner {
    */
   private endPass() {
     this.abort = null;
+    this.stopClock();
   }
 
   /**
@@ -492,6 +523,7 @@ export class JobRunner {
     // can only reach whichever one is installed.
     this.abort?.abort();
     this.abort = new AbortController();
+    this.startClock();
     this.phase = 'style';
     this.pausedDuring = 'style';
     this.failure = null;
@@ -556,6 +588,7 @@ export class JobRunner {
     // can only reach whichever one is installed.
     this.abort?.abort();
     this.abort = new AbortController();
+    this.startClock();
     this.phase = 'verify';
     this.pausedDuring = 'verify';
     this.failure = null;
@@ -654,6 +687,7 @@ export class JobRunner {
     // can only reach whichever one is installed.
     this.abort?.abort();
     this.abort = new AbortController();
+    this.startClock();
     this.phase = 'glossary';
     this.pausedDuring = 'glossary';
     this.failure = null;
@@ -719,6 +753,7 @@ export class JobRunner {
     // can only reach whichever one is installed.
     this.abort?.abort();
     this.abort = new AbortController();
+    this.startClock();
     this.phase = 'translate';
     this.pausedDuring = 'translate';
     this.failure = null;
@@ -785,7 +820,6 @@ export class JobRunner {
         abortSignal: signal,
       });
       const ms = Date.now() - started;
-      this.elapsedMs += ms;
       this.commitPair({
         index: i,
         original: originalMarkdown,
@@ -858,6 +892,7 @@ export class JobRunner {
     // can only reach whichever one is installed.
     this.abort?.abort();
     this.abort = new AbortController();
+    this.startClock();
     this.phase = 'translateReview';
     this.pausedDuring = 'translateReview';
     this.failure = null;
@@ -921,7 +956,6 @@ export class JobRunner {
       to: window.to,
     });
 
-    const started = Date.now();
     await runReviewAgent({
       stored: this.stored,
       abortSignal: signal,
@@ -949,7 +983,6 @@ export class JobRunner {
 
     this.reviewedByWindow[key] = true;
     this.reviewIndex = Object.keys(this.reviewedByWindow).length;
-    this.elapsedMs += Date.now() - started;
     await this.persist();
     this.emit();
   }
@@ -988,7 +1021,6 @@ export class JobRunner {
           abortSignal: signal,
         });
         const ms = Date.now() - started;
-        this.elapsedMs += ms;
         this.commitPair({
           index: idx,
           original: originalMarkdown,

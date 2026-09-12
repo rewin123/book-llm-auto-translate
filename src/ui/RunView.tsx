@@ -38,6 +38,13 @@ export function RunView(props: Props) {
   const done = reviewing ? snap.reviewIndex : snap.translated.length;
   const total = reviewing ? Math.max(snap.reviewTotal, 1) : snap.total;
   const pct = total ? Math.round((done / total) * 100) : 0;
+  // The mean of the chunks' own recorded latencies. Dividing total elapsed time
+  // by the chunk count mixed in the review pass and divided concurrent work by a
+  // serial count, so the figure bore no relation to a chunk's actual wait.
+  const timings = snap.translated.map((p) => p.ms ?? 0).filter((ms) => ms > 0);
+  const meanChunkMs = timings.length
+    ? timings.reduce((a, b) => a + b, 0) / timings.length
+    : 0;
   const lastEvent = snap.events[snap.events.length - 1];
   const trialFinished =
     snap.phase === 'paused' && done > 0 && done < snap.total && snap.trialLimit !== null;
@@ -130,8 +137,8 @@ export function RunView(props: Props) {
                   })}
                 </span>
               )}
-              {snap.elapsedMs > 0 && snap.translated.length > 0 && (
-                <span>{fmt(t.perChunk, { secs: Math.round(snap.elapsedMs / snap.translated.length / 1000) })}</span>
+              {meanChunkMs > 0 && (
+                <span>{fmt(t.perChunk, { secs: Math.round(meanChunkMs / 1000) })}</span>
               )}
             </span>
           </div>

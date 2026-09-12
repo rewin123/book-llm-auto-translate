@@ -1,4 +1,3 @@
-import { Fragment } from 'react';
 import type { Locale, Theme } from '../storage/prefs.ts';
 import { useT } from '../i18n/index.ts';
 import { MoonIcon, SunIcon, CheckIcon, GithubIcon } from './icons.tsx';
@@ -79,16 +78,18 @@ export function Stepper({ current }: { current: Step }) {
   return (
     <ol className="stepper">
       {steps.map((s, i) => (
-        <Fragment key={s.id}>
+        // The connector lives inside the <li>: an <ol> may only hold <li>
+        // children, and assistive tech that counts them to announce "item X of
+        // Y" was counting the separators too.
+        <li
+          key={s.id}
+          data-state={i < currentAt ? 'done' : i === currentAt ? 'current' : 'todo'}
+          aria-current={i === currentAt ? 'step' : undefined}
+        >
           {i > 0 && <span className="bar" aria-hidden="true" />}
-          <li
-            data-state={i < currentAt ? 'done' : i === currentAt ? 'current' : 'todo'}
-            aria-current={i === currentAt ? 'step' : undefined}
-          >
-            <span className="dot">{i < currentAt ? <CheckIcon size={13} /> : i + 1}</span>
-            <span>{s.label}</span>
-          </li>
-        </Fragment>
+          <span className="dot">{i < currentAt ? <CheckIcon size={13} /> : i + 1}</span>
+          <span>{s.label}</span>
+        </li>
       ))}
     </ol>
   );

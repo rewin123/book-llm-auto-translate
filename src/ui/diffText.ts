@@ -93,9 +93,24 @@ function diffTokens(a: string[], b: string[]): DiffOp[] {
   return ops;
 }
 
+/**
+ * Token-pair ceiling for the LCS table.
+ *
+ * The table is `Uint16Array`, so an LCS longer than 65535 would wrap, and the
+ * memory is O(n·m) — at the 20000-character chunk cap that is already ~22 MB per
+ * call. Past this, fall back to reporting the differing span wholesale.
+ */
+const MAX_LCS_CELLS = 4_000_000;
+
 function lcsDiff(a: string[], b: string[]): DiffOp[] {
   const n = a.length;
   const m = b.length;
+  if (n * m > MAX_LCS_CELLS || n > 0xffff || m > 0xffff) {
+    const ops: DiffOp[] = [];
+    if (n > 0) ops.push({ type: 'del', text: a.join('') });
+    if (m > 0) ops.push({ type: 'ins', text: b.join('') });
+    return ops;
+  }
   const dp: Uint16Array[] = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
