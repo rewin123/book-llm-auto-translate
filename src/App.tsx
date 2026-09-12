@@ -363,7 +363,16 @@ export default function App() {
               chunks: cp.chunks.length,
               bytes: cp.fileBytes.length,
             });
-            runner.restore(cp, stored);
+            // This runs straight out of a click handler, so an unusable record
+            // would escape into React and blank the app on every reload. Discard
+            // it instead and leave the user on a working setup screen.
+            try {
+              runner.restore(cp, stored);
+            } catch {
+              void clearCheckpoint();
+              setParseError({ code: 'corrupt', fileName: cp.fileName });
+              return;
+            }
             if (cp.phase !== 'review' && cp.phase !== 'style' && cp.phase !== 'verifyReview') {
               resumeJob();
             }

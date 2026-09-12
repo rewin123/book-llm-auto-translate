@@ -207,7 +207,14 @@ export class JobRunner {
       glossary: this.glossary,
       glossaryByBig: this.glossaryByBig,
       glossarySeed: this.glossarySeed,
-      translated: this.translated,
+      // Without `llmCalls`. Each one holds the full instructions, the full user
+      // message (glossary plus the two previous chunks in both languages) and the
+      // full response — roughly 40 kB per chunk — and a checkpoint is rewritten
+      // in full after *every* chunk. On a 300-chunk book that was ~12 MB per
+      // write and well over a gigabyte of structured-clone traffic per run, until
+      // the quota was hit and resume silently stopped working. They are only read
+      // by the details panel, so they stay in memory.
+      translated: this.translated.map(({ llmCalls: _calls, ...pair }) => pair),
       index: this.index,
       phase: this.phase,
       elapsedMs: this.elapsedMs,
