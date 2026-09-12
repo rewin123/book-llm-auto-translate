@@ -32,6 +32,15 @@ export function migrateProviders(stored: Partial<StoredProviders>): StoredProvid
   };
 }
 
-export function saveProviders(value: StoredProviders) {
-  localStorage.setItem(storageKeys.providers, JSON.stringify(value));
+export function saveProviders(value: StoredProviders): boolean {
+  // Called from an effect on every change. An unguarded throw in Safari Private
+  // Browsing, with site data blocked, or on a full quota escaped into React and
+  // unmounted the whole tree — a blank page in exactly the privacy mode where
+  // this app's "nothing leaves your browser" promise matters most.
+  try {
+    localStorage.setItem(storageKeys.providers, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
 }

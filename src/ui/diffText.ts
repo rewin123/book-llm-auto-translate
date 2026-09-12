@@ -16,22 +16,64 @@ export function diffText(before: string, after: string): DiffOp[] {
   return mergeOps(diffTokens(tokenize(before), tokenize(after)));
 }
 
+/** Leading whitespace plus any markdown block prefix on a line. */
+const BLOCK_PREFIX_RE = /^(\s*(?:#{1,6} |>+ ?|[-*+] |\d+\. ))/;
+
 export function annotateDiff(ops: DiffOp[], side: 'before' | 'after'): string {
   let out = '';
+  const mark = (text: string, open: string, close: string) => {
+    // A marker placed before a line's `#` or `-` hides the block syntax from the
+    // markdown pass, so the heading or list item renders as a plain paragraph.
+    // Keep any block prefix outside the marked run.
+    if (out === '' || out.endsWith('\n')) {
+      const prefix = BLOCK_PREFIX_RE.exec(text)?.[1];
+      if (prefix) {
+        out += prefix + open + text.slice(prefix.length) + close;
+        return;
+      }
+    }
+    out += open + text + close;
+  };
   for (const op of ops) {
     if (op.type === 'eq') out += op.text;
-    else if (side === 'before' && op.type === 'del') out += DIFF_DEL_OPEN + op.text + DIFF_DEL_CLOSE;
-    else if (side === 'after' && op.type === 'ins') out += DIFF_INS_OPEN + op.text + DIFF_INS_CLOSE;
+    else if (side === 'before' && op.type === 'del') mark(op.text, DIFF_DEL_OPEN, DIFF_DEL_CLOSE);
+    else if (side === 'after' && op.type === 'ins') mark(op.text, DIFF_INS_OPEN, DIFF_INS_CLOSE);
   }
   return out;
 }
 
+const MARKER_TAGS: Record<string, string> = {
+  [DIFF_DEL_OPEN]: '<del class="diff-del">',
+  [DIFF_DEL_CLOSE]: '</del>',
+  [DIFF_INS_OPEN]: '<ins class="diff-ins">',
+  [DIFF_INS_CLOSE]: '</ins>',
+};
+
+/**
+ * Swaps the markers for real tags, but only where a tag is allowed.
+ *
+ * A blind `replaceAll` over serialized HTML also hit markers that had landed
+ * inside an attribute value — a link target holding a space is tokenized, so a
+ * marker can end up mid-`href` — which terminated the attribute early and
+ * mangled the anchor. Inside a tag the marker is simply dropped.
+ */
 export function applyDiffMarkers(html: string): string {
-  return html
-    .replaceAll(DIFF_DEL_OPEN, '<del class="diff-del">')
-    .replaceAll(DIFF_DEL_CLOSE, '</del>')
-    .replaceAll(DIFF_INS_OPEN, '<ins class="diff-ins">')
-    .replaceAll(DIFF_INS_CLOSE, '</ins>');
+  let out = '';
+  let inTag = false;
+  for (const ch of html) {
+    if (inTag) {
+      if (ch === '>') inTag = false;
+      if (!MARKER_TAGS[ch]) out += ch;
+      continue;
+    }
+    if (ch === '<') {
+      inTag = true;
+      out += ch;
+      continue;
+    }
+    out += MARKER_TAGS[ch] ?? ch;
+  }
+  return out;
 }
 
 function diffTokens(a: string[], b: string[]): DiffOp[] {

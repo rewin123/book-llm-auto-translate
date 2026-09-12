@@ -250,6 +250,9 @@ export const en = {
   offlineTitle: "You're offline",
   offlineHint:
     'Nothing is lost. The chunk in flight will start again by itself when the connection returns; finished chunks are already saved.',
+  storageBlockedTitle: 'This browser is not saving your settings',
+  storageBlockedHint:
+    'Translation works, but your key and preferences will be gone when you close the tab. Private browsing and blocked site data both cause this.',
   resumeBanner: 'Unfinished book',
   resumeMeta: '{state} {ago} at chunk {index} of {total} · {from} → {to}',
   resumeAction: 'Pick up where you left off',

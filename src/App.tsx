@@ -52,6 +52,7 @@ export default function App() {
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<{ code: ParseErrorCode; fileName: string } | null>(null);
   const [pending, setPending] = useState<Checkpoint | null>(null);
+  const [storageBlocked, setStorageBlocked] = useState(false);
   const [guideDraft, setGuideDraft] = useState('');
   const [glossaryDraft, setGlossaryDraft] = useState<GlossaryEntry[]>([]);
   const [previewIndex, setPreviewIndex] = useState(0);
@@ -93,8 +94,14 @@ export default function App() {
     document.documentElement.lang = locale;
   }, [locale]);
 
-  useEffect(() => saveProviders(stored), [stored]);
-  useEffect(() => saveSetup(setup), [setup]);
+  // Keys that cannot be stored are worth saying out loud: the run still works,
+  // but nothing is remembered for the next visit.
+  useEffect(() => {
+    setStorageBlocked(!saveProviders(stored));
+  }, [stored]);
+  useEffect(() => {
+    saveSetup(setup);
+  }, [setup]);
 
   useEffect(() => {
     const on = () => setOnline(true);
@@ -307,6 +314,14 @@ export default function App() {
           <div>
             <strong>{t.offlineTitle}</strong>
             <p>{t.offlineHint}</p>
+          </div>
+        </div>
+      )}
+      {storageBlocked && (
+        <div className="card banner banner-warn" role="status">
+          <div>
+            <strong>{t.storageBlockedTitle}</strong>
+            <p>{t.storageBlockedHint}</p>
           </div>
         </div>
       )}

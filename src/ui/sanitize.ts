@@ -33,10 +33,31 @@ const ALLOWED = new Set([
   'text-author',
 ]);
 
+/** Schemes a preview link may use. Everything else is dropped. */
+const ALLOWED_SCHEMES = new Set(['http', 'https', 'mailto']);
+
+/**
+ * Validates a URL by allowlisted scheme, after removing the characters a
+ * browser's URL parser itself ignores.
+ *
+ * A denylist over the raw string was bypassable: `trim()` leaves C0 controls in
+ * place and the pattern is anchored, so `java\tscript:alert(1)` and
+ * `\x01javascript:alert(1)` both survived — and the browser strips exactly those
+ * bytes before deciding the scheme, so both executed. Since this app keeps
+ * provider API keys in localStorage, script on its origin means key theft.
+ */
 function safeHref(value: string): string | null {
-  const v = value.trim();
-  if (!v || /^(javascript|data|vbscript):/i.test(v)) return null;
-  return v;
+  // Drop what a browser's URL parser itself ignores: C0 controls, space and DEL.
+  // Validate and return that same string, so what was checked is exactly what
+  // reaches the DOM.
+  // oxlint-disable-next-line no-control-regex -- matching these is the fix
+  const normalized = value.replace(/[\u0000-\u0020\u007F]/g, '');
+  if (!normalized) return null;
+  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(normalized);
+  // No scheme means a fragment or a relative reference, which carries nothing to
+  // abuse; a protocol-relative `//host` would inherit the page's scheme.
+  if (!scheme) return normalized.startsWith('//') ? null : normalized;
+  return ALLOWED_SCHEMES.has(scheme[1]!.toLowerCase()) ? normalized : null;
 }
 
 function copySafe(src: Node, dstDoc: Document): Node | null {
@@ -78,7 +99,10 @@ function copySafe(src: Node, dstDoc: Document): Node | null {
   const out = dstDoc.createElement(htmlName);
   if (name === 'a') {
     const href = safeHref(el.getAttribute('href') || el.getAttribute('l:href') || '');
-    if (href) out.setAttribute('href', href);
+    if (href) {
+      out.setAttribute('href', href);
+      out.setAttribute('rel', 'noopener noreferrer');
+    }
   }
   if (name === 'img') {
     const srcAttr = safeHref(el.getAttribute('src') || '');
