@@ -47,7 +47,14 @@ export function uniqueImageHref(used: Set<string>, sourcePath: string): string {
 /** Collects images and maps original container paths onto stable markdown hrefs. */
 export class ImageBag {
   readonly images: BookImage[] = [];
+  /** Real container paths. Only these make `add` a no-op for a repeat image. */
   private readonly bySource = new Map<string, string>();
+  /**
+   * Bare file names, kept apart from real paths so a book holding both
+   * `art/cover.png` and a root-level `cover.png` keeps two distinct images —
+   * one shared map silently dropped the second and aliased it to the first.
+   */
+  private readonly byBaseName = new Map<string, string>();
   private readonly used = new Set<string>();
 
   add(sourcePath: string, bytes: Uint8Array, mimeType: string): string {
@@ -56,7 +63,7 @@ export class ImageBag {
     const href = uniqueImageHref(this.used, sourcePath);
     this.bySource.set(sourcePath, href);
     const base = sourcePath.split('/').pop();
-    if (base && !this.bySource.has(base)) this.bySource.set(base, href);
+    if (base && !this.byBaseName.has(base)) this.byBaseName.set(base, href);
     this.images.push({ href, bytes, mimeType });
     return href;
   }
@@ -64,10 +71,20 @@ export class ImageBag {
   hrefFor(sourcePath: string): string | undefined {
     const trimmed = sourcePath.replace(/^#/, '').trim();
     if (!trimmed) return undefined;
-    return (
-      this.bySource.get(trimmed) ??
-      this.bySource.get(trimmed.replace(/^\//, '')) ??
-      this.bySource.get(trimmed.split('/').pop() ?? '')
-    );
+    let decoded = trimmed;
+    try {
+      decoded = decodeURIComponent(trimmed);
+    } catch {
+      /* a malformed escape is used as written */
+    }
+    for (const key of [trimmed, decoded]) {
+      const hit = this.bySource.get(key) ?? this.bySource.get(key.replace(/^\//, ''));
+      if (hit) return hit;
+    }
+    for (const key of [trimmed, decoded]) {
+      const hit = this.byBaseName.get(key.split('/').pop() ?? '');
+      if (hit) return hit;
+    }
+    return undefined;
   }
 }

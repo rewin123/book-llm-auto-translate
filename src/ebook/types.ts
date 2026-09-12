@@ -10,6 +10,12 @@ export type Chunk = {
   documentPath: string;
   chapterTitle: string;
   markdown: string;
+  /**
+   * This chunk starts inside the block the previous chunk began, because that
+   * block was longer than the chunk limit. Packing rejoins such a seam with a
+   * space instead of a blank line, so one paragraph stays one paragraph.
+   */
+  continuesBlock?: boolean;
 };
 
 export type BookImage = {

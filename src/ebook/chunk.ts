@@ -2,23 +2,45 @@ import type { Chunk } from './types.ts';
 
 export const DEFAULT_CHUNK_CHARS = 5000;
 
+/**
+ * Caps for "am I inside a construct I must not cut?".
+ *
+ * Without them a single unmatched `<` or `](` anywhere in a chapter marks the
+ * whole remaining text as protected, and the scan that looks for a safe cut runs
+ * to the end of the document — which produced chunks many times `maxChars`.
+ */
+const MAX_TAG_SPAN = 200;
+const MAX_LINK_SPAN = 2000;
+/** How far past `maxChars` a cut may travel before we cut anyway. */
+const OVERSHOOT_SLACK = 512;
+
 function insideTag(md: string, pos: number): boolean {
   const lt = md.lastIndexOf('<', pos);
   if (lt === -1) return false;
   const gt = md.lastIndexOf('>', pos);
-  return lt > gt;
+  if (lt <= gt) return false;
+  if (pos - lt > MAX_TAG_SPAN) return false;
+  // A bare `<` (from a source `&lt;`) is text, not a tag: only a delimiter that
+  // actually closes counts, and a real tag holds no `<` and no blank line.
+  const close = md.indexOf('>', pos);
+  if (close === -1 || close - lt > MAX_TAG_SPAN) return false;
+  const span = md.slice(lt + 1, close);
+  return !span.includes('<') && !span.includes('\n\n');
 }
 
 function insideLinkTarget(md: string, pos: number): boolean {
   const open = md.lastIndexOf('](', pos);
   if (open === -1) return false;
-  const close = md.indexOf(')', open + 2);
   const bracket = md.lastIndexOf('[', pos);
   if (bracket > open) return false;
-  return close === -1 || close >= pos;
+  const close = md.indexOf(')', open + 2);
+  // An unclosed `](` is ordinary text; it must not protect the rest of the book.
+  if (close === -1 || close < pos) return false;
+  return close - open <= MAX_LINK_SPAN;
 }
 
-function insideFence(md: string, pos: number): boolean {
+/** Counts line-start fences before `pos`. Shared so the invariant checker agrees. */
+function fenceCountBefore(md: string, pos: number): number {
   let fences = 0;
   let i = 0;
   while (i < pos) {
@@ -27,7 +49,24 @@ function insideFence(md: string, pos: number): boolean {
     if (at === 0 || md[at - 1] === '\n') fences += 1;
     i = at + 3;
   }
-  return fences % 2 === 1;
+  return fences;
+}
+
+function hasFenceAtOrAfter(md: string, pos: number): boolean {
+  let i = pos;
+  while (i < md.length) {
+    const at = md.indexOf('```', i);
+    if (at === -1) return false;
+    if (at === 0 || md[at - 1] === '\n') return true;
+    i = at + 3;
+  }
+  return false;
+}
+
+function insideFence(md: string, pos: number): boolean {
+  if (fenceCountBefore(md, pos) % 2 !== 1) return false;
+  // An unterminated fence would otherwise protect every later offset.
+  return hasFenceAtOrAfter(md, pos);
 }
 
 function isWordChar(ch: string | undefined): boolean {
@@ -39,31 +78,50 @@ function isProtected(md: string, pos: number): boolean {
   return insideTag(md, pos) || insideLinkTarget(md, pos) || insideFence(md, pos);
 }
 
+/**
+ * Never cut between the halves of a surrogate pair: each side would hold an
+ * unpaired code unit, which is invalid UTF-16 and reaches the API and the
+ * checkpoint as `U+FFFD`.
+ */
+function avoidSurrogateSplit(md: string, cut: number): number {
+  if (cut <= 0 || cut >= md.length) return cut;
+  const prev = md.charCodeAt(cut - 1);
+  if (prev < 0xd800 || prev > 0xdbff) return cut;
+  const next = md.charCodeAt(cut);
+  return next >= 0xdc00 && next <= 0xdfff ? cut + 1 : cut;
+}
+
 /** Cut at or before `start+maxChars` on a word/link/fence boundary. Never splits a word. */
 export function nextWordCut(md: string, start: number, maxChars: number): number {
+  return avoidSurrogateSplit(md, rawWordCut(md, start, maxChars));
+}
+
+function rawWordCut(md: string, start: number, maxChars: number): number {
   const n = md.length;
   if (start >= n) return n;
-  let limit = Math.min(start + maxChars, n);
+  const limit = Math.min(start + maxChars, n);
   if (limit === n) return n;
+  // Cutting a little late beats returning a chunk many times the limit.
+  const ceiling = Math.min(n, limit + OVERSHOOT_SLACK);
 
   if (isProtected(md, limit)) {
     let cut = limit;
     while (cut > start && isProtected(md, cut)) cut--;
     if (cut > start) return cut;
     cut = limit;
-    while (cut < n && isProtected(md, cut)) cut++;
-    return cut;
+    while (cut < ceiling && isProtected(md, cut)) cut++;
+    return cut < ceiling ? cut : Math.max(limit, start + 1);
   }
 
-  if (limit < n && isWordChar(md[limit]) && isWordChar(md[limit - 1])) {
+  if (isWordChar(md[limit]) && isWordChar(md[limit - 1])) {
     let cut = limit;
     while (cut > start && isWordChar(md[cut - 1]) && !isProtected(md, cut - 1)) {
       cut--;
     }
     if (cut > start) return cut;
     cut = limit;
-    while (cut < n && isWordChar(md[cut]) && !isProtected(md, cut)) cut++;
-    return cut;
+    while (cut < ceiling && isWordChar(md[cut]) && !isProtected(md, cut)) cut++;
+    return cut < ceiling ? cut : Math.max(limit, start + 1);
   }
   return Math.max(limit, start + 1);
 }
@@ -123,32 +181,64 @@ export function splitMarkdownBlocks(md: string): string[] {
   return out.filter((f) => f.length > 0);
 }
 
-export function packFragments(fragments: string[], maxChars: number): string[] {
-  const exploded = fragments.flatMap((f) =>
-    f.length <= maxChars ? [f] : splitAtWordBoundary(f, maxChars),
-  );
-  const chunks: string[] = [];
-  let buf = '';
-  for (const frag of exploded) {
-    if (!buf) {
-      buf = frag;
+/**
+ * A chunk plus whether it starts in the middle of a block the previous chunk
+ * began. Packing the translation back together needs this: an over-long
+ * paragraph is legitimately cut mid-sentence, and rejoining such a seam with a
+ * blank line would turn one paragraph into several broken ones.
+ */
+export type ChunkPart = { markdown: string; continuesBlock: boolean };
+
+function explode(fragments: string[], maxChars: number): ChunkPart[] {
+  const out: ChunkPart[] = [];
+  for (const fragment of fragments) {
+    if (fragment.length <= maxChars) {
+      out.push({ markdown: fragment, continuesBlock: false });
       continue;
     }
-    if (buf.length + frag.length <= maxChars) {
-      buf += frag;
+    const pieces = splitAtWordBoundary(fragment, maxChars);
+    pieces.forEach((markdown, i) => out.push({ markdown, continuesBlock: i > 0 }));
+  }
+  return out;
+}
+
+export function packFragmentParts(fragments: string[], maxChars: number): ChunkPart[] {
+  const chunks: ChunkPart[] = [];
+  let buf: ChunkPart | null = null;
+  for (const frag of explode(fragments, maxChars)) {
+    if (!buf) {
+      buf = { ...frag };
+      continue;
+    }
+    if (buf.markdown.length + frag.markdown.length <= maxChars) {
+      buf.markdown += frag.markdown;
     } else {
       chunks.push(buf);
-      buf = frag;
+      buf = { ...frag };
     }
   }
   if (buf) chunks.push(buf);
   return chunks;
 }
 
-export function chunkMarkdown(md: string, maxChars: number): string[] {
+export function packFragments(fragments: string[], maxChars: number): string[] {
+  return packFragmentParts(fragments, maxChars).map((p) => p.markdown);
+}
+
+export function chunkMarkdownParts(md: string, maxChars: number): ChunkPart[] {
   const fragments = splitMarkdownBlocks(md);
-  if (fragments.length === 0) return md.trim() ? splitAtWordBoundary(md, maxChars) : [];
-  return packFragments(fragments, maxChars);
+  if (fragments.length === 0) {
+    if (!md.trim()) return [];
+    return splitAtWordBoundary(md, maxChars).map((markdown, i) => ({
+      markdown,
+      continuesBlock: i > 0,
+    }));
+  }
+  return packFragmentParts(fragments, maxChars);
+}
+
+export function chunkMarkdown(md: string, maxChars: number): string[] {
+  return chunkMarkdownParts(md, maxChars).map((p) => p.markdown);
 }
 
 export function chunksIntact(original: string, chunks: string[]): boolean {
@@ -171,10 +261,14 @@ export function noChunkSplitsWord(original: string, chunks: string[]): boolean {
 }
 
 export function noChunkSplitsFence(chunks: string[]): boolean {
-  return chunks.every((c) => {
-    const fences = c.match(/```/g)?.length ?? 0;
-    return fences % 2 === 0;
-  });
+  // Counts only line-start fences, the same rule `insideFence` applies; a
+  // backtick run inside prose is not a fence and must not fail the invariant.
+  return chunks.every((c) => fenceCountBefore(c, c.length) % 2 === 0);
+}
+
+/** No chunk holds an unpaired surrogate half. */
+export function noChunkSplitsSurrogate(chunks: string[]): boolean {
+  return chunks.every((c) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(c));
 }
 
 export function indexChunks(
@@ -183,13 +277,13 @@ export function indexChunks(
 ): Chunk[] {
   const out: Chunk[] = [];
   for (const piece of pieces) {
-    const parts = chunkMarkdown(piece.markdown, maxChars);
-    for (const markdown of parts) {
+    for (const part of chunkMarkdownParts(piece.markdown, maxChars)) {
       out.push({
         index: out.length,
         documentPath: piece.documentPath,
         chapterTitle: piece.chapterTitle,
-        markdown,
+        markdown: part.markdown,
+        ...(part.continuesBlock ? { continuesBlock: true as const } : {}),
       });
     }
   }

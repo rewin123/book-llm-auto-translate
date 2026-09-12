@@ -25,13 +25,64 @@ export function encodingFromXmlDeclaration(bytes: Uint8Array): string {
   return ALIASES[raw] ?? raw;
 }
 
-export function decodeXmlBytes(bytes: Uint8Array): string {
-  const encoding = encodingFromXmlDeclaration(bytes);
+/** A byte-order mark is authoritative: it outranks any `encoding=` attribute. */
+export function encodingFromBom(bytes: Uint8Array): string | null {
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) return 'utf-16le';
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) return 'utf-16be';
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return 'utf-8';
+  return null;
+}
+
+function decodeWith(bytes: Uint8Array, encoding: string): string | null {
   try {
     return new TextDecoder(encoding, { fatal: false }).decode(bytes);
   } catch {
-    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    return null;
   }
+}
+
+/** Share of U+FFFD — a decode that produced many is the wrong decode. */
+function replacementRatio(text: string): number {
+  if (!text) return 0;
+  return (text.match(/�/g)?.length ?? 0) / text.length;
+}
+
+const MAX_REPLACEMENT_RATIO = 0.02;
+
+/**
+ * Decodes an XML document, preferring the BOM, then the declaration.
+ *
+ * `fatal: false` never throws, so a cp1251 file mislabelled `encoding="utf-8"` —
+ * endemic among FB2 books — used to decode into a document made of replacement
+ * characters and go on to be chunked and translated. A decode that produces an
+ * implausible share of them is now retried with the common single-byte
+ * encodings, and the cleanest result wins.
+ */
+export function decodeXmlBytes(bytes: Uint8Array): string {
+  const bom = encodingFromBom(bytes);
+  if (bom) {
+    const decoded = decodeWith(bytes, bom);
+    if (decoded !== null) return decoded;
+  }
+
+  const declared = encodingFromXmlDeclaration(bytes);
+  const first = decodeWith(bytes, declared) ?? decodeWith(bytes, 'utf-8') ?? '';
+  if (replacementRatio(first) <= MAX_REPLACEMENT_RATIO) return first;
+
+  let best = first;
+  let bestRatio = replacementRatio(first);
+  for (const candidate of ['windows-1251', 'iso-8859-1', 'koi8-r', 'utf-8']) {
+    if (candidate === declared) continue;
+    const decoded = decodeWith(bytes, candidate);
+    if (decoded === null) continue;
+    const ratio = replacementRatio(decoded);
+    if (ratio < bestRatio) {
+      best = decoded;
+      bestRatio = ratio;
+      if (ratio === 0) break;
+    }
+  }
+  return best;
 }
 
 export function toUtf8Xml(xml: string): string {

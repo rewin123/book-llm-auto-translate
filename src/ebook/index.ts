@@ -85,7 +85,12 @@ export async function packBook(options: {
   targetLang: string;
 }): Promise<PackedBook> {
   const base = options.book.fileName.replace(/\.(epub|fb2|fb2\.zip|fbz)$/i, '');
-  const markdown = joinMarkdown(options.translations);
+  // Chunks cut out of the middle of an over-long paragraph are rejoined with a
+  // space, so the paragraph survives the round trip as one paragraph.
+  const markdown = joinMarkdown(
+    options.translations,
+    options.book.chunks.map((c) => c.continuesBlock === true),
+  );
   let images = options.book.images ?? [];
   if (images.length === 0) {
     images = await extractBookImages(options.book.format, options.book.sourceBytes);
