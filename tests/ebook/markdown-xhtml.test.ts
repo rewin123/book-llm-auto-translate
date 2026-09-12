@@ -136,12 +136,18 @@ describe('chapter labels and seams', () => {
     expect(chapters.map((c) => c.title)).toEqual(['One', 'Two']);
   });
 
-  it('rejoins a mid-paragraph seam with a space, not a blank line', () => {
-    const joined = joinMarkdown(['первая половина', 'вторая половина'], [false, true]);
+  it('rejoins a mid-sentence seam with a space, not a blank line', () => {
+    const joined = joinMarkdown(['первая половина', 'вторая половина'], [undefined, 'space']);
     expect(joined.trim()).toBe('первая половина вторая половина');
   });
 
+  it('rejoins a soft line break as a line break', () => {
+    expect(joinMarkdown(['— Да, — сказал он.', '— Нет, — сказала она.'], [undefined, 'line']).trim()).toBe(
+      '— Да, — сказал он.\n— Нет, — сказала она.',
+    );
+  });
+
   it('still separates real blocks with a blank line', () => {
-    expect(joinMarkdown(['one', 'two'], [false, false]).trim()).toBe('one\n\ntwo');
+    expect(joinMarkdown(['one', 'two'], [undefined, undefined]).trim()).toBe('one\n\ntwo');
   });
 });

@@ -54,7 +54,7 @@ describe('parseCheckpointRecord', () => {
       parseCheckpointRecord(
         stored({
           chunks: [
-            { index: 0, documentPath: 'a.xhtml', chapterTitle: 'One', markdown: 'Hi', continuesBlock: true },
+            { index: 0, documentPath: 'a.xhtml', chapterTitle: 'One', markdown: 'Hi', joinWith: 'space' },
           ],
         }),
       ),

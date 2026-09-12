@@ -15,14 +15,14 @@ const KEY = 'current';
  * threw out of a click handler and, with no error boundary, blanked the app on
  * every reload until site data was cleared by hand.
  */
-export const CHECKPOINT_VERSION = 1;
+export const CHECKPOINT_VERSION = 2;
 
 const chunkSchema = z.object({
   index: z.number(),
   documentPath: z.string(),
   chapterTitle: z.string(),
   markdown: z.string(),
-  continuesBlock: z.boolean().optional(),
+  joinWith: z.union([z.literal('space'), z.literal('line')]).optional(),
 });
 
 const pairSchema = z.object({

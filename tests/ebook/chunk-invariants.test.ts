@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  boundarySlack,
   chunkMarkdown,
   chunkMarkdownParts,
   chunksIntact,
@@ -7,9 +8,6 @@ import {
   noChunkSplitsSurrogate,
 } from '../../src/ebook/chunk.ts';
 import { joinMarkdown } from '../../src/ebook/markdown.ts';
-
-/** Matches the slack `nextWordCut` is allowed before it cuts regardless. */
-const SLACK = 512;
 
 const WORD = 'слово ';
 
@@ -32,7 +30,7 @@ describe('chunk size limit', () => {
   for (const [label, md] of cases) {
     it(`holds with ${label}`, () => {
       const chunks = chunkMarkdown(md, 5000);
-      expect(Math.max(...chunks.map((c) => c.length))).toBeLessThanOrEqual(5000 + SLACK);
+      expect(Math.max(...chunks.map((c) => c.length))).toBeLessThanOrEqual(5000 + boundarySlack(5000));
       expect(chunksIntact(md, chunks)).toBe(true);
     });
   }
@@ -66,20 +64,20 @@ describe('mid-paragraph seams', () => {
   it('flags every piece after the first when one block is split', () => {
     const parts = chunkMarkdownParts(WORD.repeat(1000), 2000);
     expect(parts.length).toBeGreaterThan(1);
-    expect(parts[0]!.continuesBlock).toBeFalsy();
-    expect(parts.slice(1).every((p) => p.continuesBlock)).toBe(true);
+    expect(parts[0]!.joinWith).toBeUndefined();
+    expect(parts.slice(1).every((p) => p.joinWith === 'space')).toBe(true);
   });
 
   it('does not flag separate blocks', () => {
     const parts = chunkMarkdownParts('# One\n\nAAA\n\n# Two\n\nBBB', 5000);
-    expect(parts.every((p) => !p.continuesBlock)).toBe(true);
+    expect(parts.every((p) => p.joinWith === undefined)).toBe(true);
   });
 
   it('rejoins a split paragraph as one paragraph', () => {
     const parts = chunkMarkdownParts(WORD.repeat(1000), 2000);
     const rejoined = joinMarkdown(
       parts.map((p) => p.markdown),
-      parts.map((p) => p.continuesBlock),
+      parts.map((p) => p.joinWith),
     );
     expect(rejoined.trim()).not.toContain('\n\n');
   });
@@ -103,7 +101,7 @@ describe('randomised chunking', () => {
       expect(chunksIntact(md, chunks)).toBe(true);
       expect(noChunkSplitsSurrogate(chunks)).toBe(true);
       const longest = Math.max(0, ...chunks.map((c) => c.length));
-      expect(longest).toBeLessThanOrEqual(max + SLACK);
+      expect(longest).toBeLessThanOrEqual(max + boundarySlack(max));
     }
   });
 });

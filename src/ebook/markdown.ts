@@ -1,6 +1,7 @@
 import { isAlreadyTargetLanguage, shouldSkipTranslatedElement } from './lang.ts';
 import { localName } from './xml.ts';
 import type { ImageBag } from './images.ts';
+import type { ChunkJoin } from './types.ts';
 
 export type MdOpts = {
   /** Resolve a relative image/link href against the source document. */
@@ -623,12 +624,17 @@ export function splitMarkdownIntoChapters(md: string): { title: string; body: st
 }
 
 /**
- * Rejoins translated chunks. A chunk flagged `continuesBlock` was cut out of the
- * middle of an over-long paragraph, so it is rejoined with a space — gluing such
- * a seam with a blank line turned one paragraph into several, each broken
- * mid-sentence.
+ * Rejoins translated chunks, each seam the way it was cut.
+ *
+ * A chunk carrying `joinWith` starts inside the block the previous one began,
+ * because that block was longer than the chunk limit: `'line'` for a soft line
+ * break, `'space'` for a split made mid-sentence. Gluing such a seam with a
+ * blank line turned one paragraph into several, each broken mid-sentence.
  */
-export function joinMarkdown(parts: string[], continuesBlock?: readonly boolean[]): string {
+export function joinMarkdown(
+  parts: string[],
+  joins?: readonly (ChunkJoin | undefined)[],
+): string {
   let out = '';
   parts.forEach((raw, i) => {
     const part = raw.replace(/\s+$/, '');
@@ -637,7 +643,9 @@ export function joinMarkdown(parts: string[], continuesBlock?: readonly boolean[
       out = part;
       return;
     }
-    out += continuesBlock?.[i] ? ` ${part.replace(/^\s+/, '')}` : `\n\n${part}`;
+    const join = joins?.[i];
+    const separator = join === 'space' ? ' ' : join === 'line' ? '\n' : '\n\n';
+    out += join ? `${separator}${part.replace(/^[ \t]+/, '')}` : `${separator}${part}`;
   });
   return out ? `${out}\n` : '\n';
 }
