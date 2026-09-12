@@ -1,4 +1,4 @@
-/** Word-level diff so the review pane can highlight what the seam pass changed. */
+/** Word-level diff so the review pane can highlight what the review pass changed. */
 
 export type DiffOp = { type: 'eq' | 'del' | 'ins'; text: string };
 

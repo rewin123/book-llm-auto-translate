@@ -66,14 +66,14 @@ export const en = {
   generationHint: 'These control how the book is split and how many model calls run at once.',
   generationCost: 'Estimated translation cost',
   generationCostHint:
-    'An estimate, not a bill. Glossary, translation, and the seam-review pass, priced for {model}.',
+    'An estimate, not a bill. Glossary, translation, and the review pass, priced for {model}.',
   parallelN: 'Parallel threads',
   parallelNHint: 'Each thread translates a contiguous slice sequentially. Default 1.',
   glossaryBatch: 'Chunks per glossary call',
   glossaryBatchHint: 'Standard chunks packed into one glossary request.',
   reviewBatch: 'Chunks per review call',
   reviewBatchHint:
-    'How many standard chunks one review agent sees. Adjacent windows overlap by one chunk so seams are visible.',
+    'How many standard chunks one review agent may edit. It can read the neighbouring chunks too, so the joins stay visible.',
   readyBookShort: 'Book is parsed',
   back: 'Back',
   continueToSettings: 'Continue to settings',
@@ -143,7 +143,7 @@ export const en = {
   unitMin: '{n} min',
   unitHour: '{n} h {m} min',
   costNote:
-    'An estimate, not a bill, for the {n} chunks you selected. Includes the glossary pass, translation (style guidelines, the full glossary and the previous two chunks), and a seam-review pass. Priced for {model}.',
+    'An estimate, not a bill, for the {n} chunks you selected. Includes the glossary pass, translation (style guidelines, the full glossary and the previous two chunks), and a review pass. Priced for {model}.',
   chunkLimit: 'Chunks to translate',
   chunkLimitOf: 'of {total}',
   chunkLimitHint: 'You can stop early and continue the rest later. Untranslated chunks stay in the source language.',
@@ -158,7 +158,7 @@ export const en = {
   statusVerify: 'Translating a sample chunk',
   statusVerifyReview: 'Waiting for the guideline check',
   statusTranslating: 'Translating',
-  statusReviewing: 'Reviewing seams',
+  statusReviewing: 'Reviewing translation',
   statusPaused: 'Paused',
   statusDone: 'Finished',
   statusStopped: 'Stopped',
@@ -342,8 +342,9 @@ export const en = {
     retryServer: 'Provider error — retry {attempt} in {secs}s. Progress is kept.',
     readChunk: 'Read chunk {idx}',
     reviewWindow: 'Review {n}/{total} · chunks {from}–{to}',
-    reviewReady: 'Seam review finished — {n} windows.',
-    pausedReview: 'Paused during seam review.',
+    reviewEdit: 'Review edited chunk {n}',
+    reviewReady: 'Review finished — {n} windows.',
+    pausedReview: 'Paused during review.',
   },
 };
 

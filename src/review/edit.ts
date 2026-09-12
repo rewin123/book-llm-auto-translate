@@ -1,67 +1,51 @@
 import { validateTranslation } from '../ebook/validate.ts';
 
-/** Surgical replace across concatenated chunk translations. `oldStr` must occur once. */
-export function editTranslateParts(
-  parts: string[],
+/** Replace a substring that must occur exactly once in `text`. */
+export function replaceOnce(
+  text: string,
   oldStr: string,
   newStr: string,
-): { ok: true; parts: string[] } | { ok: false; error: string } {
-  if (!oldStr) return { ok: false, error: 'old_str is empty' };
-  const joined = parts.join('');
-  const count = joined.split(oldStr).length - 1;
-  if (count === 0) return { ok: false, error: 'old_str was not found in the translation' };
+): { ok: true; text: string } | { ok: false; error: string } {
+  if (!oldStr) return { ok: false, error: 'old is empty' };
+  const count = text.split(oldStr).length - 1;
+  if (count === 0) return { ok: false, error: 'old was not found in this chunk' };
   if (count > 1) {
     return {
       ok: false,
-      error: `old_str matches ${count} times; make it a unique substring`,
+      error: `old matches ${count} times in this chunk; make it a unique substring`,
     };
   }
-
-  const start = joined.indexOf(oldStr);
-  const end = start + oldStr.length;
-  const next: string[] = [];
-  let offset = 0;
-  let placed = false;
-  for (const part of parts) {
-    const partStart = offset;
-    const partEnd = offset + part.length;
-    offset = partEnd;
-    if (partEnd <= start || partStart >= end) {
-      next.push(part);
-      continue;
-    }
-    const prefix = partStart < start ? part.slice(0, start - partStart) : '';
-    const suffix = partEnd > end ? part.slice(end - partStart) : '';
-    if (!placed) {
-      next.push(prefix + newStr + suffix);
-      placed = true;
-    } else {
-      next.push(suffix);
-    }
-  }
-  return { ok: true, parts: next };
+  return { ok: true, text: text.replace(oldStr, () => newStr) };
 }
 
 export function formatEditResult(result: { ok: true } | { ok: false; error: string }): string {
   return result.ok ? 'ok' : `err: ${result.error}`;
 }
 
-/** Apply a unique replace, then reject it if the window would fail translation checks. */
-export function applyReviewEdit(
-  parts: string[],
-  originalJoined: string,
-  oldStr: string,
-  newStr: string,
-): string {
-  const result = editTranslateParts(parts, oldStr, newStr);
-  if (!result.ok) return formatEditResult(result);
-  const check = validateTranslation(originalJoined, result.parts.join(''));
-  if (!check.ok) return `err: ${check.reason}`;
-  for (let i = 0; i < parts.length; i++) parts[i] = result.parts[i]!;
-  return 'ok';
+export type ChunkEditResult<T> = { result: string; pair: T };
+
+/**
+ * Edit one chunk's translation in place. The match must be unique *within the
+ * chunk*, so a replacement can never span a chunk boundary — the reviewer's
+ * edits stay where the reviewer aimed them and the book keeps its chunking.
+ */
+export function applyChunkEdit<
+  T extends {
+    translation: string;
+    original: string;
+    usedOriginal?: boolean;
+    reason?: string;
+    preReview?: string;
+  },
+>(pair: T, oldStr: string, newStr: string): ChunkEditResult<T> {
+  const replaced = replaceOnce(pair.translation, oldStr, newStr);
+  if (!replaced.ok) return { result: formatEditResult(replaced), pair };
+  const check = validateTranslation(pair.original, replaced.text);
+  if (!check.ok) return { result: `err: ${check.reason}`, pair };
+  return { result: 'ok', pair: applyReviewedTranslation(pair, replaced.text) };
 }
 
-/** Keep the first pre-review snapshot when the seam pass rewrites a chunk. */
+/** Keep the first pre-review snapshot when the review pass rewrites a chunk. */
 export function applyReviewedTranslation<
   T extends {
     translation: string;

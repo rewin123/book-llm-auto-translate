@@ -18,7 +18,7 @@ type Props = {
   index: number;
   onIndexChange: (i: number, pinned: boolean) => void;
   pinned: boolean;
-  /** Side-by-side original translation vs seam-review rewrite, with a word diff. */
+  /** Side-by-side original translation vs review rewrite, with a word diff. */
   reviewDiff?: boolean;
 };
 

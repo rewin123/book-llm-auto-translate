@@ -1,54 +1,79 @@
 import { describe, expect, it } from 'vitest';
-import { applyReviewEdit, applyReviewedTranslation, editTranslateParts, formatEditResult } from '../../src/review/edit.ts';
+import { applyChunkEdit, applyReviewedTranslation, formatEditResult, replaceOnce } from '../../src/review/edit.ts';
 import type { TranslatedPair } from '../../src/job/types.ts';
 
-describe('editTranslateParts', () => {
-  it('replaces a unique substring inside one chunk', () => {
-    const result = editTranslateParts(['aaa', 'bbb', 'ccc'], 'bb', 'XY');
-    expect(result).toEqual({ ok: true, parts: ['aaa', 'XYb', 'ccc'] });
+describe('replaceOnce', () => {
+  it('replaces a unique substring', () => {
+    expect(replaceOnce('aaa bbb ccc', 'bbb', 'XY')).toEqual({ ok: true, text: 'aaa XY ccc' });
   });
 
-  it('keeps concatenation when the match spans a seam', () => {
-    const result = editTranslateParts(['He said', 'hello.'], 'saidhello', 'said hello');
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.parts.join('')).toBe('He said hello.');
-    expect(result.parts).toHaveLength(2);
+  it('treats the replacement as a literal, not a pattern', () => {
+    expect(replaceOnce('cost: X', 'X', '$& $1')).toEqual({ ok: true, text: 'cost: $& $1' });
   });
 
   it('rejects a missing substring', () => {
-    expect(editTranslateParts(['aaa'], 'zzz', 'q')).toEqual({
+    expect(replaceOnce('aaa', 'zzz', 'q')).toEqual({
       ok: false,
-      error: 'old_str was not found in the translation',
+      error: 'old was not found in this chunk',
     });
   });
 
   it('rejects a substring that matches twice', () => {
-    expect(editTranslateParts(['keep keep'], 'keep', 'hold')).toEqual({
+    expect(replaceOnce('keep keep', 'keep', 'hold')).toEqual({
       ok: false,
-      error: 'old_str matches 2 times; make it a unique substring',
+      error: 'old matches 2 times in this chunk; make it a unique substring',
     });
   });
 
-  it('rejects an empty old_str', () => {
-    expect(editTranslateParts(['aaa'], '', 'x')).toEqual({
-      ok: false,
-      error: 'old_str is empty',
-    });
+  it('rejects an empty old', () => {
+    expect(replaceOnce('aaa', '', 'x')).toEqual({ ok: false, error: 'old is empty' });
   });
 
   it('formats ok and err for the agent tool', () => {
     expect(formatEditResult({ ok: true })).toBe('ok');
     expect(formatEditResult({ ok: false, error: 'nope' })).toBe('err: nope');
   });
+});
 
-  it('mutates parts on a valid edit and rejects one that empties the translation', () => {
-    const parts = ['Alice was beginning to get very tired of sitting by her sister on the bank.'];
-    const original = parts[0]!;
-    expect(applyReviewEdit(parts, original, 'Alice', 'Алиса')).toBe('ok');
-    expect(parts[0]).toContain('Алиса');
-    expect(applyReviewEdit(parts, original, parts[0]!, '')).toBe('err: empty translation');
-    expect(parts[0]).toContain('Алиса');
+describe('applyChunkEdit', () => {
+  const pair = (): TranslatedPair => ({
+    index: 1,
+    original: 'Alice was beginning to get very tired of sitting by her sister on the bank.',
+    translation: 'Alice начала уставать сидеть рядом с сестрой на берегу.',
+  });
+
+  it('edits the chunk and snapshots the pre-review text', () => {
+    const { result, pair: next } = applyChunkEdit(pair(), 'Alice', 'Алиса');
+    expect(result).toBe('ok');
+    expect(next.translation).toContain('Алиса');
+    expect(next.preReview).toBe(pair().translation);
+  });
+
+  it('never edits across a chunk boundary: a seam-spanning old is not found', () => {
+    // The tail of chunk 1 plus the head of chunk 2 only exists in the joined
+    // book, never inside one chunk — so the replace is refused instead of
+    // silently rewriting one side of the seam.
+    const { result, pair: next } = applyChunkEdit(pair(), 'берегу.Алиса', 'берегу. Алиса');
+    expect(result).toBe('err: old was not found in this chunk');
+    expect(next).toEqual(pair());
+  });
+
+  it('rejects an edit that fails the chunk validator and keeps the pair untouched', () => {
+    const before = pair();
+    const { result, pair: next } = applyChunkEdit(before, before.translation, '');
+    expect(result).toBe('err: empty translation');
+    expect(next).toBe(before);
+  });
+
+  it('rejects an edit that drops an image the chunk must keep', () => {
+    const withImage: TranslatedPair = {
+      index: 0,
+      original: 'See ![cat](img/cat.png) here.',
+      translation: 'Смотри ![кот](img/cat.png) здесь.',
+    };
+    const { result, pair: next } = applyChunkEdit(withImage, '![кот](img/cat.png)', 'картинка');
+    expect(result).toBe('err: missing image img/cat.png');
+    expect(next).toBe(withImage);
   });
 });
 

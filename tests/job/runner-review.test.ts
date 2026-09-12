@@ -21,8 +21,8 @@ function stored(): StoredProviders {
   return { ...defaultStoredProviders(), activeId: 'mock' };
 }
 
-describe('translate seam review', () => {
-  it('runs overlapping review windows after a full translate, without rewriting mock output', async () => {
+describe('translate review', () => {
+  it('runs disjoint review windows after a full translate, without rewriting mock output', async () => {
     const bytes = await buildDemoEpub();
     const runner = new JobRunner(() => undefined);
     await runner.prepare({ name: 'alice.epub', bytes }, settings, stored());
@@ -33,8 +33,8 @@ describe('translate seam review', () => {
 
     const windows = groupReviewWindows(runner.book!.chunks.length, settings.reviewBatch);
     expect(windows.length).toBeGreaterThan(1);
-    expect(windows[1]!.from).toBe(windows[0]!.to - 1);
-    expect(Object.keys(runner.reviewedByWindow).length).toBe(windows.length);
+    expect(windows[1]!.from).toBe(windows[0]!.to);
+    expect(Object.keys(runner.reviewedChunks).length).toBe(runner.book!.chunks.length);
     expect(runner.events.some((e) => e.key === 'reviewWindow')).toBe(true);
     expect(runner.events.some((e) => e.key === 'reviewReady')).toBe(true);
 

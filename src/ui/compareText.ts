@@ -41,7 +41,7 @@ export function comparePaneMarkdown(
 }
 
 /**
- * Split-diff HTML for the review pane: original translation vs the seam-pass rewrite.
+ * Split-diff HTML for the review pane: original translation vs the review-pass rewrite.
  * `changed` is false when review has not touched this chunk yet.
  */
 export function reviewDiffHtml(
