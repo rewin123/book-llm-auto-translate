@@ -27,9 +27,17 @@ export function detectTheme(): Theme {
 }
 
 export function persistLocale(locale: Locale) {
-  localStorage.setItem(storageKeys.locale, locale);
+  try {
+    localStorage.setItem(storageKeys.locale, locale);
+  } catch {
+    /* quota / private mode */
+  }
 }
 
 export function persistTheme(theme: Theme) {
-  localStorage.setItem(storageKeys.theme, theme);
+  try {
+    localStorage.setItem(storageKeys.theme, theme);
+  } catch {
+    /* quota / private mode */
+  }
 }

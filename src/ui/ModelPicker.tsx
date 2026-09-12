@@ -43,24 +43,32 @@ export function ModelPicker({ stored, setStored, connection, setConnection, disa
 
   // Curated + models.dev first; `/models` joins in once a key (or custom URL) is set.
   useEffect(() => {
-    let live = true;
-    void listModels(preset.id, {
-      baseURL: preset.id === 'custom' ? stored.customBaseURL : preset.baseURL,
-      apiKey,
-      headers: preset.headers,
-    })
-      .then((list) => {
-        if (!live) return;
-        setModels(list);
-        setModelsFor(preset.id);
+    // Typing a 40-character key used to fire ~40 `GET /models` requests, most
+    // with a truncated key — guaranteed 401s and needless rate-limit pressure —
+    // and none were cancelled, so out-of-order replies still landed. Wait for a
+    // pause in typing, and abort whatever is in flight.
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void listModels(preset.id, {
+        baseURL: preset.id === 'custom' ? stored.customBaseURL : preset.baseURL,
+        apiKey,
+        headers: preset.headers,
+        signal: controller.signal,
       })
-      .catch(() => {
-        if (!live) return;
-        setModels([]);
-        setModelsFor(preset.id);
-      });
+        .then((list) => {
+          if (controller.signal.aborted) return;
+          setModels(list);
+          setModelsFor(preset.id);
+        })
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          setModels([]);
+          setModelsFor(preset.id);
+        });
+    }, 400);
     return () => {
-      live = false;
+      clearTimeout(timer);
+      controller.abort();
     };
   }, [preset.id, preset.baseURL, preset.headers, apiKey, stored.customBaseURL]);
 

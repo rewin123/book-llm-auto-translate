@@ -49,6 +49,14 @@ export function VerifyView(props: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const session = useRef(0);
   const chatAbort = useRef<AbortController | null>(null);
+  /**
+   * The typed chunk number, applied on blur or Enter.
+   *
+   * Acting on every keystroke started a real, billed retranslation per character
+   * and set `translating`, which disabled the field — so typing "12" translated
+   * chunk 1 and the "2" never arrived. The control was unusable past chunk 9.
+   */
+  const [chunkDraft, setChunkDraft] = useState<string | null>(null);
 
   useEffect(() => {
     chatAbort.current?.abort();
@@ -69,18 +77,35 @@ export function VerifyView(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx]);
 
+  // Leaving the verify step mid-turn used to leave the stream running: it kept
+  // spending tokens, wrote state into an unmounted tree, and its tools edited
+  // the style guide and glossary after the next pass had frozen them.
+  useEffect(() => {
+    return () => {
+      chatAbort.current?.abort();
+    };
+  }, []);
+
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [lines, sending]);
 
   const locked = props.translating || props.busy || sending || retranslating || !ready;
 
+  const commitChunkNumber = () => {
+    if (chunkDraft === null) return;
+    const typed = Number(chunkDraft);
+    setChunkDraft(null);
+    if (!Number.isFinite(typed)) return;
+    const next = Math.min(Math.max(Math.round(typed) - 1, 0), max);
+    if (next !== idx) props.onChunkChange(next);
+  };
+
   const send = async () => {
     const text = draft.trim();
     if (!text || locked || !chunk || !verifyPair) return;
-    const turnAbort = new AbortController();
+    const turnAbort = props.runner.beginChatTurn();
     chatAbort.current = turnAbort;
-    props.runner.abort = turnAbort;
     const turn = session.current;
     const userId = nextId.current++;
     setDraft('');
@@ -153,6 +178,8 @@ export function VerifyView(props: Props) {
       if (turnAbort.signal.aborted) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      props.runner.endChatTurn(turnAbort);
+      if (chatAbort.current === turnAbort) chatAbort.current = null;
       if (turn === session.current) setSending(false);
     }
   };
@@ -240,9 +267,13 @@ export function VerifyView(props: Props) {
               min={1}
               max={chunks.length}
               step={1}
-              value={idx + 1}
+              value={chunkDraft ?? String(idx + 1)}
               disabled={props.translating || props.busy}
-              onChange={(e) => props.onChunkChange(Number(e.target.value) - 1)}
+              onChange={(e) => setChunkDraft(e.target.value)}
+              onBlur={commitChunkNumber}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitChunkNumber();
+              }}
             />
             <span className="hint">{fmt(t.chunkLimitOf, { total: chunks.length })}</span>
             <button

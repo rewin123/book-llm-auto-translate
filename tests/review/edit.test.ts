@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyReviewEdit, applyReviewedTranslation, editTranslateParts, formatEditResult } from '../../src/review/edit.ts';
+import type { TranslatedPair } from '../../src/job/types.ts';
 
 describe('editTranslateParts', () => {
   it('replaces a unique substring inside one chunk', () => {
@@ -52,7 +53,7 @@ describe('editTranslateParts', () => {
 });
 
 describe('applyReviewedTranslation', () => {
-  const pair = {
+  const pair: TranslatedPair = {
     index: 0,
     original: 'Alice',
     translation: 'Алиса',

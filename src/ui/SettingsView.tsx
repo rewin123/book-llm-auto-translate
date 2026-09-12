@@ -3,10 +3,16 @@ import { PROVIDER_PRESETS, type StoredProviders } from '../llm/presets.ts';
 import type { ConnectionResult } from '../llm/testConnection.ts';
 import {
   clampBatch,
+  clampChunkChars,
   clampConcurrency,
+  clampLogLimit,
   DEFAULT_GLOSSARY_BATCH,
   DEFAULT_REVIEW_BATCH,
   MAX_BATCH,
+  MAX_CHUNK_CHARS,
+  MAX_LOG_LIMIT,
+  MIN_CHUNK_CHARS,
+  MIN_LOG_LIMIT,
   type SetupPrefs,
 } from '../storage/setup.ts';
 import type { CostEstimate } from '../job/types.ts';
@@ -35,18 +41,39 @@ export function SettingsView(props: Props) {
   const { t, locale } = useT();
   const { setup, setSetup, stored, translatedCount } = props;
   const [pendingChunk, setPendingChunk] = useState<number | null>(null);
+  /**
+   * What the user is typing, kept out of `setup` until they finish.
+   *
+   * Writing every keystroke straight through re-parsed the whole book on each
+   * one, and the moment the field was empty `Number('')` made it 0 — which
+   * splits the book into one chunk per character and freezes the tab.
+   */
+  const [chunkDraft, setChunkDraft] = useState<string | null>(null);
+  const [logDraft, setLogDraft] = useState<string | null>(null);
 
   const preset = PROVIDER_PRESETS.find((p) => p.id === stored.activeId) ?? PROVIDER_PRESETS[0]!;
   const needsKey = preset.needsKey && !stored.apiKeys[preset.id];
   const untested = !props.connection?.ok;
   const canContinue = !!props.bookLabel && !needsKey && !props.parsing;
 
-  const applyChunk = (value: number) => {
+  /** Commits the typed chunk size, clamped to the field's own bounds. */
+  const commitChunk = () => {
+    if (chunkDraft === null) return;
+    const value = clampChunkChars(Number(chunkDraft));
+    setChunkDraft(null);
+    if (value === setup.chunkChars) return;
     if (translatedCount > 0) {
       setPendingChunk(value);
       return;
     }
     setSetup((s) => ({ ...s, chunkChars: value }));
+  };
+
+  const commitLogLimit = () => {
+    if (logDraft === null) return;
+    const value = clampLogLimit(Number(logDraft));
+    setLogDraft(null);
+    setSetup((s) => ({ ...s, logLimit: value }));
   };
 
   return (
@@ -132,11 +159,15 @@ export function SettingsView(props: Props) {
             <input
               id="chunk-size"
               type="number"
-              min={800}
-              max={20000}
+              min={MIN_CHUNK_CHARS}
+              max={MAX_CHUNK_CHARS}
               step={100}
-              value={pendingChunk ?? setup.chunkChars}
-              onChange={(e) => applyChunk(Number(e.target.value))}
+              value={chunkDraft ?? String(pendingChunk ?? setup.chunkChars)}
+              onChange={(e) => setChunkDraft(e.target.value)}
+              onBlur={commitChunk}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitChunk();
+              }}
             />
             <p className="hint" style={{ margin: '6px 0 0' }}>
               {t.chunkSizeHint}
@@ -262,10 +293,14 @@ export function SettingsView(props: Props) {
             <input
               id="log-limit"
               type="number"
-              min={5}
-              max={200}
-              value={setup.logLimit}
-              onChange={(e) => setSetup((s) => ({ ...s, logLimit: Number(e.target.value) }))}
+              min={MIN_LOG_LIMIT}
+              max={MAX_LOG_LIMIT}
+              value={logDraft ?? String(setup.logLimit)}
+              onChange={(e) => setLogDraft(e.target.value)}
+              onBlur={commitLogLimit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitLogLimit();
+              }}
             />
             <p className="hint" style={{ margin: '6px 0 0' }}>
               {t.logLimitHint}

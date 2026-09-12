@@ -1,6 +1,7 @@
 import { isAlreadyTargetLanguage, shouldSkipTranslatedElement } from './lang.ts';
 import { localName } from './xml.ts';
 import type { ImageBag } from './images.ts';
+import type { ChunkJoin } from './types.ts';
 
 export type MdOpts = {
   /** Resolve a relative image/link href against the source document. */
@@ -9,6 +10,9 @@ export type MdOpts = {
   /** Drop blocks already in the target language (bilingual source books). */
   dropAlreadyTranslated?: { sourceLang: string; targetLang: string };
 };
+
+/** A markdown URL may hold balanced parentheses, as Wikipedia links routinely do. */
+const URL_PART = String.raw`[^()\s]*(?:\([^()]*\)[^()]*)*`;
 
 const BLOCK_NAMES = new Set([
   'p',
@@ -39,10 +43,15 @@ const BLOCK_NAMES = new Set([
   'stanza',
   'cite',
   'empty-line',
+  // FB2 verse lines and attributions are laid out as blocks below, so a
+  // container holding them must keep the block path.
+  'v',
+  'text-author',
+  'figure',
 ]);
 
 export function htmlToMarkdown(root: Element, opts?: MdOpts): string {
-  const md = collapseBlankLines(blockChildren(root, opts)).trim() + (root.childNodes.length ? '\n' : '');
+  const md = collapseBlankLines(childrenAsBlocks(root, opts)).trim() + (root.childNodes.length ? '\n' : '');
   // If every paragraph was already in the target language, keep the source
   // rather than producing an empty book (wrong language pair, or RU→RU).
   if (opts?.dropAlreadyTranslated && !md.trim()) {
@@ -70,14 +79,33 @@ function blockChildren(el: Element, opts?: MdOpts): string {
   return out;
 }
 
+/**
+ * A container's children as blocks — unless it holds no block child, in which
+ * case the whole thing is one paragraph.
+ *
+ * Walking the children blindly turned `<div>He said <b>no</b>, loudly.</div>`
+ * into three one-word paragraphs with the emphasis dropped, which is what every
+ * book that lays out prose with `<div class="para">` instead of `<p>` gets.
+ */
+function childrenAsBlocks(el: Element, opts?: MdOpts): string {
+  if (hasBlockChild(el)) return blockChildren(el, opts);
+  const inline = inlineChildren(el, opts);
+  return inline ? `${inline}\n\n` : '';
+}
+
 function hasBlockChild(el: Element): boolean {
   return Array.from(el.childNodes).some(
     (n) => n.nodeType === Node.ELEMENT_NODE && BLOCK_NAMES.has(localName(n as Element)),
   );
 }
 
+/** A real XML DOM exposes `<![CDATA[…]]>` as its own node type; its text counts. */
+function isTextLike(node: Node): boolean {
+  return node.nodeType === Node.TEXT_NODE || node.nodeType === Node.CDATA_SECTION_NODE;
+}
+
 function nodeToBlock(node: Node, opts?: MdOpts): string {
-  if (node.nodeType === Node.TEXT_NODE) {
+  if (isTextLike(node)) {
     const t = (node.textContent ?? '').replace(/\s+/g, ' ').trim();
     return t ? `${t}\n\n` : '';
   }
@@ -103,7 +131,7 @@ function nodeToBlock(node: Node, opts?: MdOpts): string {
     case 'blockquote':
     case 'epigraph':
     case 'cite':
-      return toBlockquote(blockChildren(el, opts)) + '\n\n';
+      return toBlockquote(childrenAsBlocks(el, opts)) + '\n\n';
     case 'ul':
     case 'ol':
       return listToMd(el, opts, name === 'ol') + '\n';
@@ -127,7 +155,7 @@ function nodeToBlock(node: Node, opts?: MdOpts): string {
     case 'figure':
     case 'poem':
     case 'stanza':
-      return blockChildren(el, opts);
+      return childrenAsBlocks(el, opts);
     case 'title':
       return `# ${inlineChildren(el, opts)}\n\n`;
     case 'subtitle':
@@ -155,19 +183,32 @@ function toBlockquote(inner: string): string {
 }
 
 function listToMd(el: Element, opts: MdOpts | undefined, ordered: boolean): string {
-  const items = Array.from(el.childNodes).filter(
-    (n) => n.nodeType === Node.ELEMENT_NODE && localName(n as Element) === 'li',
-  ) as Element[];
-  return items
-    .map((item, i) => {
-      const prefix = ordered ? `${i + 1}. ` : '- ';
-      if (hasBlockChild(item)) {
-        const inner = blockChildren(item, opts).trim().replace(/\n/g, '\n  ');
-        return `${prefix}${inner}`;
-      }
-      return `${prefix}${inlineChildren(item, opts)}`;
-    })
-    .join('\n') + '\n';
+  const lines: string[] = [];
+  let n = 0;
+  for (const node of Array.from(el.childNodes)) {
+    if (node.nodeType !== Node.ELEMENT_NODE) continue;
+    const child = node as Element;
+    const name = localName(child);
+    if (name === 'li') {
+      n += 1;
+      const prefix = ordered ? `${n}. ` : '- ';
+      const body = hasBlockChild(child)
+        ? blockChildren(child, opts).trim()
+        : inlineChildren(child, opts);
+      lines.push(`${prefix}${body.replace(/\n/g, '\n  ')}`);
+      continue;
+    }
+    // A nested `<ul>`/`<ol>` as a direct child of a list is valid markup that
+    // several converters emit; dropping it lost whole sub-lists from the book.
+    if (name === 'ul' || name === 'ol') {
+      const nested = listToMd(child, opts, name === 'ol').trimEnd();
+      if (nested) lines.push(nested.replace(/^/gm, '  '));
+      continue;
+    }
+    const stray = nodeToBlock(child, opts).trim();
+    if (stray) lines.push(stray.replace(/\n/g, '\n  '));
+  }
+  return lines.join('\n') + '\n';
 }
 
 function tableToMd(el: Element, opts?: MdOpts): string {
@@ -182,7 +223,11 @@ function tableToMd(el: Element, opts?: MdOpts): string {
         n.nodeType === Node.ELEMENT_NODE &&
         (localName(n as Element) === 'td' || localName(n as Element) === 'th'),
     ) as Element[];
-    const cols = cells.map((c) => inlineChildren(c, opts).replace(/\|/g, '\\|'));
+    // A cell's own line break would otherwise split the row and leave the
+    // delimiter line detached, so nothing renders as a table at all.
+    const cols = cells.map((c) =>
+      inlineChildren(c, opts).replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim(),
+    );
     lines.push(`| ${cols.join(' | ')} |`);
     if (idx === 0) lines.push(`| ${cols.map(() => '---').join(' | ')} |`);
   });
@@ -196,7 +241,7 @@ function inlineChildren(el: Element, opts?: MdOpts): string {
 }
 
 function nodeToInline(node: Node, opts?: MdOpts): string {
-  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+  if (isTextLike(node)) return node.textContent ?? '';
   if (node.nodeType !== Node.ELEMENT_NODE) return '';
   const el = node as Element;
   if (opts?.dropAlreadyTranslated && shouldSkipTranslatedElement(el, opts.dropAlreadyTranslated.sourceLang, opts.dropAlreadyTranslated.targetLang)) {
@@ -255,8 +300,8 @@ export function markdownToPlainText(md: string): string {
     .trim();
 }
 
-const IMAGE_RE = /!\[([^\]]*)]\(([^)]+)\)/g;
-const LINK_RE = /(?<!!)\[([^\]]*)]\(([^)]+)\)/g;
+const IMAGE_RE = new RegExp(String.raw`!\[([^\]]*)\]\((${URL_PART})\)`, 'g');
+const LINK_RE = new RegExp(String.raw`(?<!!)\[([^\]]*)\]\((${URL_PART})\)`, 'g');
 
 export function collectImageSrcs(md: string): string[] {
   const out: string[] = [];
@@ -286,35 +331,155 @@ export function toEpubImageSrc(mdHref: string): string {
   return `images/${base}`;
 }
 
+/**
+ * Drops every code point XML 1.0 forbids: C0 controls other than tab/LF/CR,
+ * unpaired surrogate halves and the two non-characters. A truncated UTF-16 pair
+ * is a routine artefact of streamed model output, and leaving one in makes the
+ * whole chapter — and for strict readers the whole book — fail to parse.
+ */
+export function stripXmlIllegal(s: string): string {
+  let out = '';
+  for (let i = 0; i < s.length; i += 1) {
+    const code = s.charCodeAt(i);
+    if (code === 0x9 || code === 0xa || code === 0xd) {
+      out += s[i];
+      continue;
+    }
+    if (code < 0x20) continue;
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = s.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += s[i]! + s[i + 1]!;
+        i += 1;
+      }
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) continue;
+    if (code === 0xfffe || code === 0xffff) continue;
+    out += s[i];
+  }
+  return out;
+}
+
 export function escapeXml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return stripXmlIllegal(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+const INLINE_IMAGE_RE = new RegExp(String.raw`!\[([^\]]*)\]\((${URL_PART})\)`);
+const INLINE_LINK_RE = new RegExp(String.raw`\[([^\]]*)\]\((${URL_PART})\)`);
+const INLINE_CODE_RE = /`([^`]+)`/;
+
+/**
+ * A piece of an inline run: `html` is already-serialized markup that must be
+ * copied verbatim, `text` is still markdown that needs escaping and emphasis.
+ *
+ * Splitting into segments rather than substituting string placeholders is what
+ * keeps literal sentinel text in a book from being swallowed, keeps a link
+ * inside a code span intact, and keeps the soft-break pass from writing `<br/>`
+ * into an `href` it has no business touching.
+ */
+type Segment = { html: string } | { text: string };
+
+function splitSegments(
+  segments: Segment[],
+  pattern: RegExp,
+  toHtml: (m: RegExpExecArray) => string,
+): Segment[] {
+  const out: Segment[] = [];
+  for (const segment of segments) {
+    if ('html' in segment) {
+      out.push(segment);
+      continue;
+    }
+    let rest = segment.text;
+    for (;;) {
+      const m = pattern.exec(rest);
+      if (!m) break;
+      if (m.index > 0) out.push({ text: rest.slice(0, m.index) });
+      out.push({ html: toHtml(m) });
+      rest = rest.slice(m.index + m[0].length);
+    }
+    if (rest) out.push({ text: rest });
+  }
+  return out;
+}
+
+function isAlnum(ch: string | undefined): boolean {
+  return ch !== undefined && /[\p{L}\p{N}]/u.test(ch);
+}
+
+/**
+ * Emphasis in one pass, so runs can nest but never interleave. Four independent
+ * regex passes used to emit `<strong>a <em>b</strong> c</em>`, which is not
+ * well-formed XML and costs the reader the whole chapter.
+ */
+function emphasize(s: string): string {
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i]!;
+    if (ch === '*' || ch === '_') {
+      const len = s[i + 1] === ch ? 2 : 1;
+      const close = findCloser(s, i, len);
+      if (close !== -1) {
+        const tag = len === 2 ? 'strong' : 'em';
+        out += `<${tag}>${emphasize(s.slice(i + len, close))}</${tag}>`;
+        i = close + len;
+        continue;
+      }
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+function findCloser(s: string, open: number, len: number): number {
+  const ch = s[open]!;
+  const run = ch.repeat(len);
+  // An opener is followed by content, and `_` never opens inside a word, so
+  // `snake_case_name` and `2 * 3 * 4` stay literal text.
+  if (/\s/.test(s[open + len] ?? '')) return -1;
+  if (ch === '_' && isAlnum(s[open - 1])) return -1;
+  for (let i = open + len; i < s.length; i += 1) {
+    // Emphasis does not reach across a soft break.
+    if (s[i] === '\n') return -1;
+    if (!s.startsWith(run, i)) continue;
+    if (i === open + len) continue;
+    if (/\s/.test(s[i - 1] ?? '')) continue;
+    if (s[i + len] === ch) continue;
+    if (ch === '_' && isAlnum(s[i + len])) continue;
+    return i;
+  }
+  return -1;
+}
+
+function textToXhtml(text: string): string {
+  // Soft line breaks must stay visible in EPUB: a raw newline inside <p> is
+  // just whitespace and readers collapse it. Dialogue and verse rely on this.
+  return emphasize(escapeXml(text)).replace(/\n/g, '<br/>\n');
 }
 
 function inlineToXhtml(s: string): string {
-  const slots: string[] = [];
-  const stash = (html: string) => {
-    const i = slots.length;
-    slots.push(html);
-    return `%%BT${i}%%`;
-  };
-  let t = s;
-  t = t.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_all, alt, src) =>
-    stash(`<img alt="${escapeXml(alt)}" src="${escapeXml(toEpubImageSrc(src))}"/>`),
+  // Code spans are split out first: their body is literal, so a link or image
+  // written inside one must survive as text rather than become markup.
+  let segments: Segment[] = [{ text: s }];
+  segments = splitSegments(segments, INLINE_CODE_RE, (m) => `<code>${escapeXml(m[1]!)}</code>`);
+  segments = splitSegments(
+    segments,
+    INLINE_IMAGE_RE,
+    (m) => `<img alt="${escapeXml(m[1]!)}" src="${escapeXml(toEpubImageSrc(m[2]!))}"/>`,
   );
-  t = t.replace(/\[([^\]]+)]\(([^)]+)\)/g, (_all, text, href) =>
-    stash(`<a href="${escapeXml(href)}">${escapeXml(text)}</a>`),
+  segments = splitSegments(
+    segments,
+    INLINE_LINK_RE,
+    (m) => `<a href="${escapeXml(m[2]!)}">${textToXhtml(m[1]!)}</a>`,
   );
-  t = t.replace(/`([^`]+)`/g, (_all, code) => stash(`<code>${escapeXml(code)}</code>`));
-  t = escapeXml(t);
-  t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  t = t.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  t = t.replace(/__(.+?)__/g, '<strong>$1</strong>');
-  t = t.replace(/_(.+?)_/g, '<em>$1</em>');
-  t = t.replace(/%%BT(\d+)%%/g, (_all, i) => slots[Number(i)]!);
-  // Soft line breaks must stay visible in EPUB: a raw newline inside <p> is
-  // just whitespace and readers collapse it. Dialogue and verse rely on this.
-  t = t.replace(/\n/g, '<br/>\n');
-  return t;
+  return segments.map((seg) => ('html' in seg ? seg.html : textToXhtml(seg.text))).join('');
 }
 
 function isFence(line: string): boolean {
@@ -433,9 +598,24 @@ export function markdownToXhtmlFragment(md: string): string {
 export function splitMarkdownIntoChapters(md: string): { title: string; body: string }[] {
   const trimmed = md.trim();
   if (!trimmed) return [{ title: '', body: '' }];
-  const parts = trimmed.split(/(?=^#{1,2} )/m).filter((p) => p.trim());
-  if (parts.length === 0) return [{ title: '', body: trimmed }];
-  return parts.map((part) => {
+  // Split only on headings outside fenced code: a `# comment` inside a fence is
+  // not a chapter, and cutting there left an unterminated fence behind.
+  const lines = trimmed.split('\n');
+  const parts: string[] = [];
+  let buf: string[] = [];
+  let fenced = false;
+  for (const line of lines) {
+    if (isFence(line)) fenced = !fenced;
+    else if (!fenced && /^#{1,2} /.test(line) && buf.length > 0) {
+      parts.push(buf.join('\n'));
+      buf = [];
+    }
+    buf.push(line);
+  }
+  if (buf.length > 0) parts.push(buf.join('\n'));
+  const kept = parts.filter((p) => p.trim());
+  if (kept.length === 0) return [{ title: '', body: trimmed }];
+  return kept.map((part) => {
     const first = part.split('\n')[0] ?? '';
     const heading = /^(#{1,2}) (.*)$/.exec(first);
     const title = heading?.[2]?.trim() ?? '';
@@ -443,8 +623,31 @@ export function splitMarkdownIntoChapters(md: string): { title: string; body: st
   });
 }
 
-export function joinMarkdown(parts: string[]): string {
-  return `${parts.map((p) => p.replace(/\s+$/, '')).filter((p) => p.length > 0).join('\n\n')}\n`;
+/**
+ * Rejoins translated chunks, each seam the way it was cut.
+ *
+ * A chunk carrying `joinWith` starts inside the block the previous one began,
+ * because that block was longer than the chunk limit: `'line'` for a soft line
+ * break, `'space'` for a split made mid-sentence. Gluing such a seam with a
+ * blank line turned one paragraph into several, each broken mid-sentence.
+ */
+export function joinMarkdown(
+  parts: string[],
+  joins?: readonly (ChunkJoin | undefined)[],
+): string {
+  let out = '';
+  parts.forEach((raw, i) => {
+    const part = raw.replace(/\s+$/, '');
+    if (!part) return;
+    if (!out) {
+      out = part;
+      return;
+    }
+    const join = joins?.[i];
+    const separator = join === 'space' ? ' ' : join === 'line' ? '\n' : '\n\n';
+    out += join ? `${separator}${part.replace(/^[ \t]+/, '')}` : `${separator}${part}`;
+  });
+  return out ? `${out}\n` : '\n';
 }
 
 /** Label for EPUB nav / `<title>` — the book's own heading, else a short snippet. Never "Chapter N". */
@@ -452,7 +655,11 @@ export function chapterNavTitle(ch: { title: string; body: string }): string {
   if (ch.title.trim()) return ch.title.trim();
   const snippet = markdownToPlainText(ch.body).replace(/\s+/g, ' ').trim();
   if (!snippet) return '';
-  return snippet.length > 48 ? `${snippet.slice(0, 48).trim()}…` : snippet;
+  // Slice by code point: cutting mid-surrogate put an unpaired half into
+  // nav.xhtml and the chapter <title>, which is not valid UTF-8 once zipped.
+  const points = Array.from(snippet);
+  if (points.length <= 48) return snippet;
+  return `${points.slice(0, 48).join('').trim()}…`;
 }
 
 function reverseChars(s: string): string {

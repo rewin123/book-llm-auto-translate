@@ -61,20 +61,29 @@ export function parseFb2Xml(
     ) as Element[];
     if (sections.length === 0) {
       n += 1;
-      pieces.push({
-        documentPath: `body:${name || n}`,
-        chapterTitle: bookTitle,
-        markdown: htmlToMarkdown(body, { images, dropAlreadyTranslated: langs }),
-      });
+      const markdown = htmlToMarkdown(body, { images, dropAlreadyTranslated: langs });
+      // A whitespace-only piece must not become a chunk: the model returns
+      // nothing for it, validation calls that an empty translation, and the
+      // retry budget burns before the runner logs `keptOriginal`.
+      if (markdown.trim()) {
+        pieces.push({
+          documentPath: `body:${name || n}`,
+          chapterTitle: bookTitle,
+          markdown,
+        });
+      }
       continue;
     }
     sections.forEach((section, idx) => {
       n += 1;
-      const path = `section:${name || 'main'}:${idx}`;
+      const markdown = htmlToMarkdown(section, { images, dropAlreadyTranslated: langs });
+      if (!markdown.trim()) return;
+      // `n` keeps the path unique: `idx` restarts per body, so two unnamed
+      // bodies both produced `section:main:0` and were merged into one chapter.
       pieces.push({
-        documentPath: path,
+        documentPath: `section:${name || 'main'}:${idx}:${n}`,
         chapterTitle: sectionTitle(section, ''),
-        markdown: htmlToMarkdown(section, { images, dropAlreadyTranslated: langs }),
+        markdown,
       });
     });
   }

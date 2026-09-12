@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import { indexChunks } from './chunk.ts';
+import { decodeXmlBytes } from './encoding.ts';
 import { ImageBag, isImagePath, mimeFromPath } from './images.ts';
 import {
   chapterNavTitle,
@@ -23,9 +24,24 @@ li { display: list-item; margin: 0.2em 0; }
 li p { margin: 0.15em 0; }
 `;
 
+/**
+ * EPUB hrefs are URLs; ZIP entry names are not. Without decoding, a book whose
+ * file names hold a space or any non-ASCII character looks for
+ * `OEBPS/Chapter%201.xhtml`, finds nothing, and is reported to the user as
+ * corrupt. A malformed escape is left as-is rather than thrown away.
+ */
+function decodeHref(href: string): string {
+  try {
+    return decodeURIComponent(href);
+  } catch {
+    return href;
+  }
+}
+
 export function zipPath(root: string, href: string): string {
   const dir = root.split('/').slice(0, -1).join('/');
-  const joined = dir ? `${dir}/${href}` : href;
+  const decoded = decodeHref(href);
+  const joined = dir ? `${dir}/${decoded}` : decoded;
   return joined.replace(/\\/g, '/').split('/').reduce<string[]>((acc, part) => {
     if (part === '..') acc.pop();
     else if (part && part !== '.') acc.push(part);
@@ -37,6 +53,31 @@ async function readText(zip: JSZip, path: string): Promise<string> {
   const file = zip.file(path);
   if (!file) throw new Error(`Missing EPUB entry: ${path}`);
   return file.async('string');
+}
+
+/**
+ * Reads an XML entry honouring its own encoding declaration. JSZip's `string`
+ * mode is UTF-8 only, so a spec-valid UTF-16 content document decoded to
+ * NUL-interleaved garbage, fell through to the lenient HTML parser, and was
+ * translated as mojibake without surfacing any error.
+ */
+async function readXmlText(zip: JSZip, path: string): Promise<string> {
+  const file = zip.file(path);
+  if (!file) throw new Error(`Missing EPUB entry: ${path}`);
+  return decodeXmlBytes(await file.async('uint8array'));
+}
+
+/**
+ * Removes script and style *bodies*. Dropping only the start tag left the
+ * JavaScript and CSS source in the text, so it was billed, translated and
+ * printed as paragraphs in the output book — and the orphaned `</script>` broke
+ * XML parsing for the whole document.
+ */
+function stripNonProse(xhtml: string): string {
+  return xhtml
+    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style\s*>/gi, '')
+    .replace(/<(?:link|script|style)\b[^>]*\/?>/gi, '');
 }
 
 function opfAttr(el: Element, name: string): string {
@@ -106,8 +147,8 @@ export async function parseEpub(
     if (/\bnav\b/i.test(item.properties)) continue;
     if (!/html|xml|xhtml/i.test(item.media) && !item.href.match(/\.x?html?$/i)) continue;
     const path = zipPath(opfPath, item.href);
-    const xhtml = await readText(zip, path);
-    const forParse = xhtml.replace(/<(?:link|script)\b[^>]*>/gi, '');
+    const xhtml = await readXmlText(zip, path);
+    const forParse = stripNonProse(xhtml);
     let body: Element | undefined;
     let headingText = '';
     try {
@@ -247,10 +288,14 @@ export async function packEpubFromMarkdown(options: {
   out.file('META-INF/container.xml', CONTAINER);
   out.file('OEBPS/styles.css', CSS);
 
+  // A chapter holding only an image has no text to label it with, and an empty
+  // `<a/>` in the nav renders as a blank TOC row and fails epubcheck. The book's
+  // own title is a truthful fallback; "Chapter N" would not be.
+  const fallbackTitle = options.title.trim() || 'Untitled';
   const spine = chapters.map((ch, i) => ({
     id: `ch${i + 1}`,
     href: chapterFileName(i),
-    title: chapterNavTitle(ch),
+    title: chapterNavTitle(ch) || fallbackTitle,
     body: ch.body,
   }));
 
@@ -311,7 +356,15 @@ function usedImagesFor(markdown: string, images: BookImage[]): BookImage[] {
   return matched.length > 0 ? matched : images;
 }
 
+/** Size of a ZIP local file header, before the entry name. */
+const ZIP_LOCAL_HEADER_SIZE = 30;
+
 export function zipFirstEntry(bytes: Uint8Array): { name: string; method: number } {
+  // Reading fixed offsets out of a short buffer threw `RangeError` instead of
+  // the intended validation error, so callers saw an unexpected failure mode.
+  if (bytes.byteLength < ZIP_LOCAL_HEADER_SIZE) {
+    throw new Error('Not a ZIP');
+  }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (view.getUint32(0, true) !== 0x04034b50) {
     throw new Error('Not a ZIP');

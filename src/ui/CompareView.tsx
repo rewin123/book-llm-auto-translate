@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Chunk } from '../ebook/types.ts';
 import type { LlmCallAttempt, TranslatedPair } from '../job/types.ts';
 import { fmt, shortLanguageName, useT } from '../i18n/index.ts';
@@ -32,24 +32,42 @@ export function CompareView(props: Props) {
   const [mode, setMode] = useState<CompareMode>('both');
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const { onIndexChange } = props;
   const max = Math.max(props.chunks.length - 1, 0);
   const idx = Math.min(Math.max(props.index, 0), max);
   const followIdx = liveFollowIndex(props.liveIndex, props.translated, props.chunks.length);
   const chunk = props.chunks[idx];
   const pair = props.translated.find((p) => p.index === idx);
-  const panes = chunk ? comparePaneMarkdown(chunk, pair) : null;
-  const review = props.reviewDiff && pair ? reviewDiffHtml(pair) : null;
+  // Both of these are expensive — a word-level LCS over the chunk plus two
+  // markdown-to-DOM sanitizations — and the runner emits a snapshot per log
+  // line, so running them on every render made switching chunks visibly janky.
+  const panes = useMemo(() => (chunk ? comparePaneMarkdown(chunk, pair) : null), [chunk, pair]);
+  const review = useMemo(
+    () => (props.reviewDiff && pair ? reviewDiffHtml(pair) : null),
+    [props.reviewDiff, pair],
+  );
+  const originalHtml = useMemo(
+    () => (panes ? markupToSafeHtml(panes.original) : ''),
+    [panes],
+  );
+  const translationHtml = useMemo(
+    () => (panes ? markupToSafeHtml(panes.translation) : ''),
+    [panes],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
-      if (e.key === 'ArrowLeft') props.onIndexChange(Math.max(idx - 1, 0), true);
-      if (e.key === 'ArrowRight') props.onIndexChange(Math.min(idx + 1, max), true);
+      if (e.key === 'ArrowLeft') onIndexChange(Math.max(idx - 1, 0), true);
+      if (e.key === 'ArrowRight') onIndexChange(Math.min(idx + 1, max), true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [idx, max, props]);
+    // `props` as a whole is a fresh object every render, which re-registered the
+    // global listener on each of the many snapshot-driven renders during a run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, max, onIndexChange]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
@@ -157,7 +175,7 @@ export function CompareView(props: Props) {
             <article
               className="page"
               dangerouslySetInnerHTML={{
-                __html: review ? review.before : markupToSafeHtml(panes.original),
+                __html: review ? review.before : originalHtml,
               }}
             />
           </section>
@@ -181,7 +199,7 @@ export function CompareView(props: Props) {
               key={`tr-html-${idx}-${ready ? 'ready' : 'pending'}-${review?.changed ? 'diff' : 'same'}`}
               className={`page ${ready ? '' : 'is-pending'}`}
               dangerouslySetInnerHTML={{
-                __html: review ? review.after : markupToSafeHtml(panes.translation),
+                __html: review ? review.after : translationHtml,
               }}
             />
           </section>

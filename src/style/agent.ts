@@ -52,7 +52,9 @@ export async function runStyleAgent(opts: {
       ts: Date.now(),
       kind: 'style',
       key: 'readChunk',
-      params: { idx },
+      // 1-based, like every other log line. The raw index made the log read
+      // "Read chunk 0 … Chunk 1 done" about the same chunk.
+      params: { idx: idx + 1 },
     });
     return opts.chunks[idx]!.markdown;
   };

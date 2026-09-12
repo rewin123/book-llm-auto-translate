@@ -1,7 +1,12 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { mockClient, type ChatResponse, type LlmClient } from './client.ts';
 import { attachRetryAfter, attachStatus, withNetworkRetry, type RetryHandler } from './net.ts';
-import { PROVIDER_PRESETS, type ProviderId, type StoredProviders } from './presets.ts';
+import {
+  PROVIDER_PRESETS,
+  defaultStoredProviders,
+  type ProviderId,
+  type StoredProviders,
+} from './presets.ts';
 
 /** Enough headroom for a translation that legitimately grows past its source. */
 const MIN_OUTPUT_TOKENS = 2048;
@@ -13,7 +18,14 @@ export function outputTokenBudget(sourceChars: number): number {
 }
 
 export function resolveProvider(stored: StoredProviders) {
-  const preset = PROVIDER_PRESETS.find((p) => p.id === stored.activeId) ?? PROVIDER_PRESETS[0]!;
+  // Falling back to PROVIDER_PRESETS[0] silently selected the mock provider,
+  // which "translates" by reversing text — and that result passes validation, so
+  // the run completed and offered a downloadable book of gibberish. The mock is
+  // only ever used when it is chosen explicitly.
+  const preset =
+    PROVIDER_PRESETS.find((p) => p.id === stored.activeId) ??
+    PROVIDER_PRESETS.find((p) => p.id === defaultStoredProviders().activeId) ??
+    PROVIDER_PRESETS[0]!;
   const baseURL = (preset.id === 'custom' ? stored.customBaseURL : preset.baseURL).replace(/\/$/, '');
   return {
     preset,

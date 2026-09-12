@@ -11,7 +11,9 @@ import type { ConnectionResult } from './llm/testConnection.ts';
 import { loadProviders, saveProviders } from './storage/providers.ts';
 import {
   clampBatch,
+  clampChunkChars,
   clampConcurrency,
+  clampLogLimit,
   DEFAULT_GLOSSARY_BATCH,
   DEFAULT_REVIEW_BATCH,
   loadSetup,
@@ -52,6 +54,7 @@ export default function App() {
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<{ code: ParseErrorCode; fileName: string } | null>(null);
   const [pending, setPending] = useState<Checkpoint | null>(null);
+  const [storageBlocked, setStorageBlocked] = useState(false);
   const [guideDraft, setGuideDraft] = useState('');
   const [glossaryDraft, setGlossaryDraft] = useState<GlossaryEntry[]>([]);
   const [previewIndex, setPreviewIndex] = useState(0);
@@ -72,8 +75,8 @@ export default function App() {
     (): JobSettings => ({
       sourceLang: setup.sourceLang,
       targetLang: setup.targetLang,
-      chunkChars: setup.chunkChars,
-      logLimit: setup.logLimit,
+      chunkChars: clampChunkChars(setup.chunkChars),
+      logLimit: clampLogLimit(setup.logLimit),
       providerId: stored.activeId,
       model: activeModel,
       concurrency: clampConcurrency(setup.concurrency),
@@ -93,8 +96,14 @@ export default function App() {
     document.documentElement.lang = locale;
   }, [locale]);
 
-  useEffect(() => saveProviders(stored), [stored]);
-  useEffect(() => saveSetup(setup), [setup]);
+  // Keys that cannot be stored are worth saying out loud: the run still works,
+  // but nothing is remembered for the next visit.
+  useEffect(() => {
+    setStorageBlocked(!saveProviders(stored));
+  }, [stored]);
+  useEffect(() => {
+    saveSetup(setup);
+  }, [setup]);
 
   useEffect(() => {
     const on = () => setOnline(true);
@@ -162,9 +171,12 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stored.activeId, activeModel, setup.concurrency, setup.glossaryBatch, setup.reviewBatch]);
 
+  // Seeds the editor when the agent produces a guide, without fighting the user
+  // afterwards. Depending on `guideDraft` meant clearing the textarea re-ran this
+  // and instantly put the draft back, so it could never be emptied.
   useEffect(() => {
-    if (snap.styleGuide && !guideDraft) setGuideDraft(snap.styleGuide);
-  }, [snap.styleGuide, guideDraft]);
+    if (snap.styleGuide) setGuideDraft(snap.styleGuide);
+  }, [snap.styleGuide]);
 
   useEffect(() => {
     if (snap.phase === 'verify' || snap.phase === 'verifyReview') {
@@ -286,8 +298,10 @@ export default function App() {
       }));
       setConnection(null);
     }
-    runner.reset();
-    setPending(null);
+    // Only the failure is cleared. Throwing away the book and every finished
+    // chunk here is what "Check the model" used to do, and it also hid the
+    // checkpoint that was the one way back.
+    runner.clearFailure();
     setSetupStep('settings');
     requestAnimationFrame(() => {
       settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -297,16 +311,28 @@ export default function App() {
     });
   };
 
+  // Rendered in every layout. It used to live in `banners`, which the wide run
+  // layout does not render — so the one notice written for a mid-translation
+  // dropout was hidden during exactly that, leaving progress to stop unexplained.
+  const offlineBanner = !online && (
+    <div className="card banner banner-danger" role="status">
+      <span className="banner-icon error">
+        <OfflineIcon />
+      </span>
+      <div>
+        <strong>{t.offlineTitle}</strong>
+        <p>{t.offlineHint}</p>
+      </div>
+    </div>
+  );
+
   const banners = (
     <>
-      {!online && (
-        <div className="card banner banner-danger" role="status">
-          <span className="banner-icon error">
-            <OfflineIcon />
-          </span>
+      {storageBlocked && (
+        <div className="card banner banner-warn" role="status">
           <div>
-            <strong>{t.offlineTitle}</strong>
-            <p>{t.offlineHint}</p>
+            <strong>{t.storageBlockedTitle}</strong>
+            <p>{t.storageBlockedHint}</p>
           </div>
         </div>
       )}
@@ -337,7 +363,16 @@ export default function App() {
               chunks: cp.chunks.length,
               bytes: cp.fileBytes.length,
             });
-            runner.restore(cp, stored);
+            // This runs straight out of a click handler, so an unusable record
+            // would escape into React and blank the app on every reload. Discard
+            // it instead and leave the user on a working setup screen.
+            try {
+              runner.restore(cp, stored);
+            } catch {
+              void clearCheckpoint();
+              setParseError({ code: 'corrupt', fileName: cp.fileName });
+              return;
+            }
             if (cp.phase !== 'review' && cp.phase !== 'style' && cp.phase !== 'verifyReview') {
               resumeJob();
             }
@@ -370,6 +405,7 @@ export default function App() {
           </>
         )}
 
+        {offlineBanner && <div className="stack">{offlineBanner}</div>}
         {!wide && <div className="stack">{banners}</div>}
 
         {snap.phase === 'idle' && setupStep === 'book' && (

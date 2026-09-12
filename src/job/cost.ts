@@ -12,10 +12,44 @@ const ASSUMED_MS_PER_GLOSSARY = 7000;
 const ASSUMED_MS_PER_REVIEW = 12_000;
 const REVIEW_OUT_TOKENS = 600;
 
+/**
+ * The style and verifier passes were missing from the estimate entirely, so the
+ * figure shown before the user commits could be roughly half the real bill.
+ *
+ * `runStyle` reads up to ten chunks across a handful of steps, and each step
+ * resends the accumulated tool results — so its input grows with the square of
+ * the step count rather than linearly.
+ */
+const STYLE_READS = 10;
+const STYLE_STEPS = 6;
+const STYLE_OUT_TOKENS = 900;
+
+function styleAgentInputTokens(avgChars: number, sample: string, chunkCount: number): number {
+  const reads = Math.min(STYLE_READS, Math.max(chunkCount, 1));
+  const perRead = charsToTokens(avgChars, sample);
+  // Step k resends the k reads so far, hence the triangular number.
+  const resends = (STYLE_STEPS * (STYLE_STEPS + 1)) / 2;
+  return STYLE_GUIDE_TOKENS * STYLE_STEPS + perRead * reads * (resends / STYLE_STEPS);
+}
+
+/**
+ * The Guideline Verifier translates the longest chunk and then holds a chat, and
+ * every turn re-embeds that chunk's original *and* translation.
+ */
+const VERIFY_TURNS = 4;
+const VERIFY_OUT_TOKENS = 1200;
+
+function verifyInputTokens(avgChars: number, sample: string, avgOutTokens: number): number {
+  const perTurn = STYLE_GUIDE_TOKENS + charsToTokens(avgChars, sample) + avgOutTokens;
+  return perTurn * VERIFY_TURNS;
+}
+
 export type CostOptions = {
   concurrency?: number;
   glossaryBatch?: number;
   reviewBatch?: number;
+  /** Needed to price the output, which is written in the target's script. */
+  targetLang?: string;
 };
 
 /**
@@ -23,8 +57,30 @@ export type CostOptions = {
  * Undercounting there made the estimate read as much cheaper than the bill.
  */
 export function charsToTokens(chars: number, sample = ''): number {
-  const dense = /[Ѐ-ӿ぀-ヿ一-鿿가-힯]/.test(sample);
-  return Math.max(1, Math.ceil(chars / (dense ? 2 : 4)));
+  return Math.max(1, Math.ceil(chars / (isDenseScript(sample) ? 2 : 4)));
+}
+
+function isDenseScript(sample: string): boolean {
+  return /[Ѐ-ӿ぀-ヿ一-鿿가-힯]/.test(sample);
+}
+
+/** Languages written in a script that packs roughly two characters per token. */
+const DENSE_LANGS = new Set(['ru', 'uk', 'be', 'bg', 'sr', 'mk', 'zh', 'ja', 'ko']);
+
+/**
+ * Characters per token for a language we have no text of yet.
+ *
+ * The output estimate used the *source* sample, so for the default `en → ru`
+ * pair it counted Russian output at Latin density and undercut the more
+ * expensive side of the price sheet by about half. The error inverted for
+ * `ru → en`, so the figure was wrong in both directions.
+ */
+function charsPerTokenForLang(lang: string): number {
+  return DENSE_LANGS.has(lang.toLowerCase().split('-')[0] ?? '') ? 2 : 4;
+}
+
+function charsToTokensForLang(chars: number, lang: string): number {
+  return Math.max(1, Math.ceil(chars / charsPerTokenForLang(lang)));
 }
 
 export async function estimateCost(
@@ -42,18 +98,35 @@ export async function estimateCost(
   const glossaryCalls = Math.ceil(chunks.length / glossaryBatch);
   const reviewCalls = groupReviewWindows(chunks.length, reviewBatch).length;
 
-  const last2 = charsToTokens(avgChars * 2, sample);
+  // The target language decides the output density. Falling back to the source
+  // sample is only for callers that do not know the pair.
+  const targetLang = opts.targetLang ?? '';
+  const outTokens = (chars: number) =>
+    targetLang ? charsToTokensForLang(chars, targetLang) : charsToTokens(chars, sample);
+
+  const last2 = charsToTokens(avgChars, sample) + outTokens(avgChars);
   const perIn = charsToTokens(avgChars, sample) + STYLE_GUIDE_TOKENS + GLOSSARY_CAP_TOKENS + last2;
-  const perOut = Math.ceil(charsToTokens(avgChars, sample) * 1.15);
+  const perOut = Math.ceil(outTokens(avgChars) * 1.15);
   const glossaryIn = glossaryCalls * (STYLE_GUIDE_TOKENS + charsToTokens(avgChars * glossaryBatch, sample));
   const glossaryOut = glossaryCalls * GLOSSARY_OUT_TOKENS;
   const reviewWindowChars = avgChars * reviewBatch;
+  // A review window carries the original *and* the translation, so each half is
+  // counted at its own density rather than both at the source's.
   const reviewIn =
     reviewCalls *
-    (STYLE_GUIDE_TOKENS + GLOSSARY_CAP_TOKENS + charsToTokens(reviewWindowChars * 2, sample));
+    (STYLE_GUIDE_TOKENS +
+      GLOSSARY_CAP_TOKENS +
+      charsToTokens(reviewWindowChars, sample) +
+      outTokens(reviewWindowChars));
   const reviewOut = reviewCalls * REVIEW_OUT_TOKENS;
-  const inputTokens = Math.round(perIn * chunks.length + glossaryIn + reviewIn);
-  const outputTokens = Math.round(perOut * chunks.length + glossaryOut + reviewOut);
+  const styleIn = styleAgentInputTokens(avgChars, sample, chunks.length);
+  const verifyIn = verifyInputTokens(avgChars, sample, outTokens(avgChars));
+  const inputTokens = Math.round(
+    perIn * chunks.length + glossaryIn + reviewIn + styleIn + verifyIn,
+  );
+  const outputTokens = Math.round(
+    perOut * chunks.length + glossaryOut + reviewOut + STYLE_OUT_TOKENS + VERIFY_OUT_TOKENS,
+  );
   const cost = await lookupCost(providerId, model);
   let usd: number | null = null;
   if (cost.inputPerMillion != null && cost.outputPerMillion != null) {

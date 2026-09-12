@@ -55,7 +55,7 @@ describe('fetchProviderModels', () => {
       }),
     ).resolves.toEqual(['deepseek-v4.1-flash-expires-on-0910']);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://api.deepseek.com/v1/models');
     expect(init.method).toBe('GET');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sk-test');

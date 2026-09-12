@@ -78,9 +78,24 @@ export function GlossaryTable({ entries, onChange, readOnly = false }: Props) {
               type="button"
               onClick={() => {
                 const parsed = parseGlossaryLines(draft);
-                const seen = new Map(entries.map((e) => [e.src, e]));
-                for (const entry of parsed) seen.set(entry.src, entry);
-                onChange?.([...seen.values()]);
+                // Merge by source term, but only for rows that have one. Keying
+                // every row collapsed the user's blank "Add" placeholders into a
+                // single entry and overwrote matching rows without a word.
+                const byTerm = new Map<string, number>();
+                const next = [...entries];
+                next.forEach((e, i) => {
+                  if (e.src.trim()) byTerm.set(e.src, i);
+                });
+                for (const entry of parsed) {
+                  const at = byTerm.get(entry.src);
+                  if (at === undefined) {
+                    byTerm.set(entry.src, next.length);
+                    next.push(entry);
+                  } else {
+                    next[at] = entry;
+                  }
+                }
+                onChange?.(next);
                 setDraft('');
                 setPasting(false);
               }}
@@ -106,7 +121,10 @@ export function GlossaryTable({ entries, onChange, readOnly = false }: Props) {
             {canEdit && <div className="head" aria-hidden="true" />}
             {entries.map((entry, i) => (
               <Row
-                key={`${entry.src}-${i}`}
+                // Keyed by position only. Including the edited value meant the
+                // key changed on every keystroke, so React remounted the input
+                // and the caret jumped out of the field after one character.
+                key={i}
                 entry={entry}
                 index={i}
                 readOnly={!canEdit}
