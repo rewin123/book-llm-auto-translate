@@ -11,7 +11,9 @@ import type { ConnectionResult } from './llm/testConnection.ts';
 import { loadProviders, saveProviders } from './storage/providers.ts';
 import {
   clampBatch,
+  clampChunkChars,
   clampConcurrency,
+  clampLogLimit,
   DEFAULT_GLOSSARY_BATCH,
   DEFAULT_REVIEW_BATCH,
   loadSetup,
@@ -73,8 +75,8 @@ export default function App() {
     (): JobSettings => ({
       sourceLang: setup.sourceLang,
       targetLang: setup.targetLang,
-      chunkChars: setup.chunkChars,
-      logLimit: setup.logLimit,
+      chunkChars: clampChunkChars(setup.chunkChars),
+      logLimit: clampLogLimit(setup.logLimit),
       providerId: stored.activeId,
       model: activeModel,
       concurrency: clampConcurrency(setup.concurrency),
@@ -169,9 +171,12 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stored.activeId, activeModel, setup.concurrency, setup.glossaryBatch, setup.reviewBatch]);
 
+  // Seeds the editor when the agent produces a guide, without fighting the user
+  // afterwards. Depending on `guideDraft` meant clearing the textarea re-ran this
+  // and instantly put the draft back, so it could never be emptied.
   useEffect(() => {
-    if (snap.styleGuide && !guideDraft) setGuideDraft(snap.styleGuide);
-  }, [snap.styleGuide, guideDraft]);
+    if (snap.styleGuide) setGuideDraft(snap.styleGuide);
+  }, [snap.styleGuide]);
 
   useEffect(() => {
     if (snap.phase === 'verify' || snap.phase === 'verifyReview') {
@@ -293,8 +298,10 @@ export default function App() {
       }));
       setConnection(null);
     }
-    runner.reset();
-    setPending(null);
+    // Only the failure is cleared. Throwing away the book and every finished
+    // chunk here is what "Check the model" used to do, and it also hid the
+    // checkpoint that was the one way back.
+    runner.clearFailure();
     setSetupStep('settings');
     requestAnimationFrame(() => {
       settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -304,19 +311,23 @@ export default function App() {
     });
   };
 
+  // Rendered in every layout. It used to live in `banners`, which the wide run
+  // layout does not render — so the one notice written for a mid-translation
+  // dropout was hidden during exactly that, leaving progress to stop unexplained.
+  const offlineBanner = !online && (
+    <div className="card banner banner-danger" role="status">
+      <span className="banner-icon error">
+        <OfflineIcon />
+      </span>
+      <div>
+        <strong>{t.offlineTitle}</strong>
+        <p>{t.offlineHint}</p>
+      </div>
+    </div>
+  );
+
   const banners = (
     <>
-      {!online && (
-        <div className="card banner banner-danger" role="status">
-          <span className="banner-icon error">
-            <OfflineIcon />
-          </span>
-          <div>
-            <strong>{t.offlineTitle}</strong>
-            <p>{t.offlineHint}</p>
-          </div>
-        </div>
-      )}
       {storageBlocked && (
         <div className="card banner banner-warn" role="status">
           <div>
@@ -385,6 +396,7 @@ export default function App() {
           </>
         )}
 
+        {offlineBanner && <div className="stack">{offlineBanner}</div>}
         {!wide && <div className="stack">{banners}</div>}
 
         {snap.phase === 'idle' && setupStep === 'book' && (

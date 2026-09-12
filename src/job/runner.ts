@@ -97,6 +97,13 @@ export class JobRunner {
   reviewedByWindow: Record<string, true> = {};
   pausedDuring: 'style' | 'glossary' | 'translate' | 'verify' | 'translateReview' | null = null;
   private persistChain: Promise<void> = Promise.resolve();
+  /**
+   * Bumped by every `prepare` call. A slow parse that finishes after a newer one
+   * must not install its book: the small file used to win the race for the UI
+   * while the big one overwrote `this.book`, so the app showed one book and
+   * translated — and packed — the other.
+   */
+  private prepareToken = 0;
 
   listener: RunnerListener;
   logLimit: number;
@@ -130,9 +137,14 @@ export class JobRunner {
       styleGuide: this.styleGuide,
       cost: this.cost,
       packed: this.packed,
-      translated: this.translated,
-      chunks: this.book?.chunks ?? [],
-      glossary: this.glossary,
+      // Fresh arrays, because `commitPair` replaces, pushes and sorts in place.
+      // Handing React the live references meant their identity never changed, so
+      // a `useMemo` keyed on them went stale: the chapter rail kept showing the
+      // old kept-original count after a retry, and showed no progress at all for
+      // windows past the first when running in parallel.
+      translated: [...this.translated],
+      chunks: this.book ? [...this.book.chunks] : [],
+      glossary: [...this.glossary],
       title: this.book?.title ?? '',
       failure: this.failure,
       trialLimit: this.trialLimit,
@@ -247,15 +259,18 @@ export class JobRunner {
     ) {
       return;
     }
+    const token = ++this.prepareToken;
     this.settings = settings;
     this.stored = stored;
     this.concurrency = settings.concurrency || DEFAULT_CONCURRENCY;
     this.glossaryBatch = settings.glossaryBatch || DEFAULT_GLOSSARY_BATCH;
     this.reviewBatch = settings.reviewBatch || DEFAULT_REVIEW_BATCH;
-    this.book = await parseBook(file, settings.chunkChars, {
+    const book = await parseBook(file, settings.chunkChars, {
       sourceLang: settings.sourceLang,
       targetLang: settings.targetLang,
     });
+    if (token !== this.prepareToken) return;
+    this.book = book;
     this.glossary = [];
     this.glossarySeed = [];
     this.glossaryByBig = {};
@@ -386,6 +401,57 @@ export class JobRunner {
     void this.refreshCost();
   }
 
+  /**
+   * True while a pass owns a controller that has not been aborted, i.e. LLM
+   * calls may still be in flight. Any entry point that would install a new
+   * controller must refuse while this holds, or it orphans the old one.
+   */
+  private busyWithLiveWork(): boolean {
+    return this.abort !== null && !this.abort.signal.aborted;
+  }
+
+  /**
+   * Installs a controller for one verifier-chat turn.
+   *
+   * The verify view used to assign `runner.abort` directly, which dropped the
+   * controller `runVerify` had installed without aborting it — so `pause()` only
+   * reached whichever handle happened to be installed last, and an abandoned
+   * retranslation could still land on a chunk the user had moved away from.
+   */
+  beginChatTurn(): AbortController {
+    this.abort?.abort();
+    this.abort = new AbortController();
+    return this.abort;
+  }
+
+  /** Releases a chat turn's controller, if it is still the installed one. */
+  endChatTurn(own: AbortController) {
+    if (this.abort === own) this.abort = null;
+  }
+
+  /**
+   * Marks the current pass finished, so the next pass in the chain may install
+   * its own controller without tripping the re-entrancy guard. Only ever called
+   * once the current pass's own work has completed.
+   */
+  private endPass() {
+    this.abort = null;
+  }
+
+  /**
+   * Clears a failure so the run can be retried after the user fixes a setting,
+   * keeping the book, the style guide, the glossary and every finished chunk.
+   *
+   * The settings screens used to call `reset()` for this, which threw all of
+   * that away — on a book already 80% translated — and left the only recovery
+   * path, the IndexedDB checkpoint, hidden.
+   */
+  clearFailure() {
+    this.failure = null;
+    if (this.phase === 'error') this.phase = this.translated.length > 0 ? 'paused' : 'idle';
+    this.emit();
+  }
+
   reset() {
     this.abort?.abort();
     this.phase = 'idle';
@@ -415,6 +481,9 @@ export class JobRunner {
 
   async runStyle() {
     if (!this.book || !this.settings || !this.stored) return;
+    // Never leave a previous pass's controller unaborted: pause() and stop()
+    // can only reach whichever one is installed.
+    this.abort?.abort();
     this.abort = new AbortController();
     this.phase = 'style';
     this.pausedDuring = 'style';
@@ -436,6 +505,7 @@ export class JobRunner {
         onRetry: (info) => this.logRetry(info),
       });
       this.phase = 'review';
+      this.endPass();
       this.log('style', 'styleReady');
       void this.persist();
     } catch (err) {
@@ -447,7 +517,10 @@ export class JobRunner {
     this.styleGuide = guide;
     if (glossary) {
       this.glossarySeed = glossary.filter((e) => e.src.trim() && e.dst.trim());
-      this.glossary = mergeGlossary([], this.glossarySeed);
+      // Rebuild from the seed *and* everything the extractor already found.
+      // Collapsing to the seed alone silently dropped hundreds of extracted
+      // terms, so the rest of the book was translated without them.
+      this.rebuildGlossary();
     }
     if (this.phase === 'style') this.phase = 'review';
     void this.persist();
@@ -472,6 +545,9 @@ export class JobRunner {
         : longestChunkIndex(chunks);
     this.verifyIndex = index;
     this.verifyPair = null;
+    // Never leave a previous pass's controller unaborted: pause() and stop()
+    // can only reach whichever one is installed.
+    this.abort?.abort();
     this.abort = new AbortController();
     this.phase = 'verify';
     this.pausedDuring = 'verify';
@@ -480,6 +556,7 @@ export class JobRunner {
     try {
       await this.translateVerifyChunk(this.abort.signal);
       this.phase = 'verifyReview';
+      this.endPass();
       this.log('info', 'verifyReady', { n: index + 1, total: chunks.length });
       await this.persist();
     } catch (err) {
@@ -566,6 +643,9 @@ export class JobRunner {
 
   async runGlossary() {
     if (!this.book || !this.settings || !this.stored) return;
+    // Never leave a previous pass's controller unaborted: pause() and stop()
+    // can only reach whichever one is installed.
+    this.abort?.abort();
     this.abort = new AbortController();
     this.phase = 'glossary';
     this.pausedDuring = 'glossary';
@@ -607,6 +687,7 @@ export class JobRunner {
       this.rebuildGlossary();
       this.log('style', 'glossaryReady', { n: this.glossary.length });
       await this.persist();
+      this.endPass();
       await this.runTranslate();
     } catch (err) {
       await this.handleFailure(err, 'pausedGlossary');
@@ -618,18 +699,18 @@ export class JobRunner {
       this.logRaw('error', 'Nothing to translate — no book is loaded.');
       return;
     }
-    if (
-      (this.phase === 'translate' || this.phase === 'translateReview') &&
-      this.abort &&
-      !this.abort.signal.aborted
-    ) {
-      return;
-    }
+    // A live controller means work is still in flight, whatever the phase says.
+    // Keying this on the phase alone let a Resume during the `error` phase start
+    // a second full set of windows alongside the first.
+    if (this.busyWithLiveWork()) return;
     const concurrency = opts?.concurrency ?? this.concurrency;
     if (opts?.glossarySnapshot) this.glossary = opts.glossarySnapshot;
     const total = this.book.chunks.length;
     const limit = opts?.limit != null ? Math.min(opts.limit, total) : total;
     this.trialLimit = limit < total ? limit : null;
+    // Never leave a previous pass's controller unaborted: pause() and stop()
+    // can only reach whichever one is installed.
+    this.abort?.abort();
     this.abort = new AbortController();
     this.phase = 'translate';
     this.pausedDuring = 'translate';
@@ -653,11 +734,13 @@ export class JobRunner {
       this.index = this.translated.length;
       if (this.translated.length < total) {
         this.phase = 'paused';
+        this.endPass();
         this.log('info', 'trialDone', { n: this.translated.length, total });
         await this.persist();
         return;
       }
 
+      this.endPass();
       await this.runTranslateReview();
     } catch (err) {
       await this.handleFailure(err, 'pausedChunk');
@@ -764,6 +847,9 @@ export class JobRunner {
     if (!this.book || !this.settings || !this.stored) return;
     if (this.phase === 'translateReview' && this.abort && !this.abort.signal.aborted) return;
     if (this.translated.length < this.book.chunks.length) return;
+    // Never leave a previous pass's controller unaborted: pause() and stop()
+    // can only reach whichever one is installed.
+    this.abort?.abort();
     this.abort = new AbortController();
     this.phase = 'translateReview';
     this.pausedDuring = 'translateReview';
@@ -779,6 +865,7 @@ export class JobRunner {
       await this.runReviewWave(odd, signal);
       await this.pack();
       this.phase = 'done';
+      this.endPass();
       this.log('info', 'reviewReady', { n: windows.length });
       this.log('info', 'packed', { file: this.packed?.fileName ?? '' });
       await this.persist();
@@ -863,10 +950,15 @@ export class JobRunner {
   /** Re-runs only the chunks whose translation never validated. */
   async retryKeptOriginal() {
     if (!this.book || !this.settings || !this.stored) return;
+    if (this.busyWithLiveWork()) return;
     const targets = this.translated.filter((t) => t.usedOriginal).map((t) => t.index);
     if (targets.length === 0) return;
     this.abort = new AbortController();
     this.phase = 'translate';
+    // Without this the field kept whatever the last pass set, so pausing here
+    // sent `resume()` into the review pass instead, and the chunks still holding
+    // source text were quietly packed that way.
+    this.pausedDuring = 'translate';
     this.failure = null;
     this.emit();
     const client = createLlmClient(this.stored, (info) => this.logRetry(info));
@@ -913,9 +1005,11 @@ export class JobRunner {
         this.emit();
       }
       if (this.index >= this.book.chunks.length) {
+        this.endPass();
         await this.runTranslateReview();
       } else {
         this.phase = 'paused';
+        this.endPass();
       }
       await this.persist();
     } catch (err) {
@@ -958,6 +1052,11 @@ export class JobRunner {
       this.log('info', pausedKey, { n: this.index + 1 });
       return;
     }
+    // `Promise.all` rejects on the first window's error while the rest are still
+    // awaiting their own LLM calls. Without this they ran to the end of their
+    // ranges — committing, persisting and billing — and a Resume then replaced
+    // `this.abort`, leaving them unstoppable and translating chunks twice.
+    this.abort?.abort();
     const verdict = classifyFailure(err);
     this.failure = {
       kind: verdict.kind,
