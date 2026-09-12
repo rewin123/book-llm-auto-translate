@@ -41,7 +41,7 @@ describe('multipass JobRunner', () => {
     expect(lastPhase).toBe('done');
     expect(runner.events.some((e) => e.key === 'reviewWindow')).toBe(true);
     expect(runner.events.some((e) => e.key === 'reviewReady')).toBe(true);
-    expect(Object.keys(runner.reviewedByWindow).length).toBeGreaterThan(0);
+    expect(Object.keys(runner.reviewedChunks).length).toBeGreaterThan(0);
     runner.reset();
   });
 });

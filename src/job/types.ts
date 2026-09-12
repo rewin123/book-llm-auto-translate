@@ -51,7 +51,7 @@ export type TranslatedPair = {
   ms?: number;
   /** Every attempt for this chunk (including failed validation retries). */
   llmCalls?: LlmCallAttempt[];
-  /** Translation before any seam-review edit. Absent when the review pass did not change this chunk. */
+  /** Translation before any review edit. Absent when the review pass did not change this chunk. */
   preReview?: string;
 };
 
@@ -83,6 +83,7 @@ export type LogKey =
   | 'verifyReady'
   | 'pausedVerify'
   | 'reviewWindow'
+  | 'reviewEdit'
   | 'reviewReady'
   | 'pausedReview';
 
@@ -137,8 +138,8 @@ export type Checkpoint = {
   savedAt?: number;
   /** Which pass to continue after a pause. */
   pausedDuring?: 'style' | 'glossary' | 'translate' | 'verify' | 'translateReview';
-  /** Review windows already committed, so a paused seam pass can resume. */
-  reviewedByWindow?: Record<string, true>;
+  /** Chunk indices the review pass already committed, so a paused pass can resume. */
+  reviewedChunks?: Record<string, true>;
   /** Sample chunk under review on the Guideline Verifier step. */
   verifyIndex?: number;
   verifyPair?: TranslatedPair;

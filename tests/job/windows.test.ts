@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupBigChunks, groupReviewWindows, splitReviewWaves, splitTranslateWindows } from '../../src/job/windows.ts';
+import { groupBigChunks, groupReviewWindows, splitTranslateWindows } from '../../src/job/windows.ts';
 import type { Chunk } from '../../src/ebook/types.ts';
 
 function chunks(n: number): Chunk[] {
@@ -54,11 +54,10 @@ describe('splitTranslateWindows', () => {
 });
 
 describe('groupReviewWindows', () => {
-  it('packs M_C chunks with a 1-chunk overlap', () => {
+  it('packs M_C chunks into disjoint windows', () => {
     expect(groupReviewWindows(10, 5)).toEqual([
       { id: 0, from: 0, to: 5 },
-      { id: 1, from: 4, to: 9 },
-      { id: 2, from: 8, to: 10 },
+      { id: 1, from: 5, to: 10 },
     ]);
   });
 
@@ -66,30 +65,18 @@ describe('groupReviewWindows', () => {
     expect(groupReviewWindows(3, 5)).toEqual([{ id: 0, from: 0, to: 3 }]);
   });
 
-  it('does not overlap when the batch is 1', () => {
-    expect(groupReviewWindows(4, 1)).toEqual([
-      { id: 0, from: 0, to: 1 },
-      { id: 1, from: 1, to: 2 },
-      { id: 2, from: 2, to: 3 },
-      { id: 3, from: 3, to: 4 },
-    ]);
+  it('gives every chunk exactly one owner', () => {
+    const owners = new Map<number, number>();
+    for (const w of groupReviewWindows(11, 4)) {
+      for (let i = w.from; i < w.to; i++) {
+        expect(owners.has(i)).toBe(false);
+        owners.set(i, w.id);
+      }
+    }
+    expect(owners.size).toBe(11);
   });
 
   it('returns nothing for an empty book', () => {
     expect(groupReviewWindows(0, 5)).toEqual([]);
-  });
-});
-
-describe('splitReviewWaves', () => {
-  it('puts overlapping neighbours in different waves', () => {
-    const { even, odd } = splitReviewWaves(groupReviewWindows(10, 5));
-    expect(even.map((w) => [w.from, w.to])).toEqual([
-      [0, 5],
-      [8, 10],
-    ]);
-    expect(odd.map((w) => [w.from, w.to])).toEqual([[4, 9]]);
-    const ids = (w: { from: number; to: number }) =>
-      Array.from({ length: w.to - w.from }, (_, i) => w.from + i);
-    expect(ids(even[0]!).some((i) => ids(even[1]!).includes(i))).toBe(false);
   });
 });

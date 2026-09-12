@@ -33,6 +33,28 @@ function styleAgentInputTokens(avgChars: number, sample: string, chunkCount: num
 }
 
 /**
+ * The reviewer no longer gets the window inlined: it pulls each chunk's source
+ * and translation through tools, and every step resends the transcript so far.
+ * Cost therefore grows with the square of the step count, like the style agent.
+ */
+function reviewInputTokens(
+  avgChars: number,
+  sample: string,
+  avgOutTokens: number,
+  windowChunks: number,
+): number {
+  // Two reads per chunk, plus a step to write the note and a little slack for
+  // edits and the neighbour reads the task asks for.
+  const reads = windowChunks * 2 + 2;
+  const steps = reads + 2;
+  const perRead = (charsToTokens(avgChars, sample) + avgOutTokens) / 2;
+  const resends = (steps * (steps + 1)) / 2;
+  return (
+    (STYLE_GUIDE_TOKENS + GLOSSARY_CAP_TOKENS) * steps + perRead * reads * (resends / steps)
+  );
+}
+
+/**
  * The Guideline Verifier translates the longest chunk and then holds a chat, and
  * every turn re-embeds that chunk's original *and* translation.
  */
@@ -109,15 +131,10 @@ export async function estimateCost(
   const perOut = Math.ceil(outTokens(avgChars) * 1.15);
   const glossaryIn = glossaryCalls * (STYLE_GUIDE_TOKENS + charsToTokens(avgChars * glossaryBatch, sample));
   const glossaryOut = glossaryCalls * GLOSSARY_OUT_TOKENS;
-  const reviewWindowChars = avgChars * reviewBatch;
-  // A review window carries the original *and* the translation, so each half is
-  // counted at its own density rather than both at the source's.
+  // A read returns the original *or* the translation, so the two densities are
+  // averaged rather than both counted at the source's.
   const reviewIn =
-    reviewCalls *
-    (STYLE_GUIDE_TOKENS +
-      GLOSSARY_CAP_TOKENS +
-      charsToTokens(reviewWindowChars, sample) +
-      outTokens(reviewWindowChars));
+    reviewCalls * reviewInputTokens(avgChars, sample, outTokens(avgChars), reviewBatch);
   const reviewOut = reviewCalls * REVIEW_OUT_TOKENS;
   const styleIn = styleAgentInputTokens(avgChars, sample, chunks.length);
   const verifyIn = verifyInputTokens(avgChars, sample, outTokens(avgChars));

@@ -161,14 +161,13 @@ export function reviewAgentSystemPrompt(opts: {
   targetLang: string;
   styleGuide: string;
   glossary: GlossaryEntry[];
-  from: number;
-  to: number;
   chunkCount: number;
 }): string {
-  return `You are a senior literary editor reviewing a stitched translation.
+  return `You are a senior literary editor reviewing an already translated book.
 
 Language pair: ${opts.sourceLang} → ${opts.targetLang}.
-This window is standard chunks ${opts.from + 1}–${opts.to} of ${opts.chunkCount} (1-based), concatenated with no extra separators. Adjacent windows overlap by one chunk so you can see seam errors at chunk boundaries: missing or doubled words, broken sentences, glossary drift, punctuation glitches.
+
+The book is split into chunks — consecutive pieces of the book's text in reading order. Chunk i is immediately followed by chunk i+1 with no gap and no separator; the whole book is chunks 0…${opts.chunkCount - 1} concatenated in that order. The final file is assembled from these chunks AFTER your review, so every chunk keeps its own text and no edit ever moves text between chunks.
 
 STYLE GUIDE (mandatory):
 ${opts.styleGuide || '(empty)'}
@@ -176,22 +175,30 @@ ${opts.styleGuide || '(empty)'}
 GLOSSARY (use these exact forms when the source word appears):
 ${glossaryLines(opts.glossary)}
 
-The original and the current translation are in the user message as <original> and <translate>.
-
 Tools:
-- read_translate() — return the current translation (it changes after edits).
-- edit_translate(old, new) — replace a unique substring in the translation. old must occur exactly once. Returns ok or err. If err, tighten old and retry.
+- read_original_chunk(id) — source text of chunk id.
+- read_translated_chunk(id) — current translation of chunk id (it changes after your edits).
+- edit_translated_chunk(id, old, new) — replace a unique substring inside the translation of chunk id. old must occur exactly once in THAT chunk. Returns ok or err. If err, tighten old and retry.
 
-Do not rewrite the whole passage. Make the smallest edits that fix seams, glossary, and obvious translation defects. Preserve markdown, link targets, and image paths. If nothing is wrong, call nothing and stop.
+You may read any chunk from 0 to ${opts.chunkCount - 1}, including the neighbours of your range, to check how a chunk joins the previous and the next one. You may edit ONLY the chunks named in the task; a defect on the join is fixed on your side of it.
 
-After tools, do not dump the translation in chat. A short note is enough.`;
+Fix mistranslations, meaning lost or invented, untranslated source-language leftovers, glossary and style-guide violations, broken sentences, doubled or missing words where chunks join, punctuation. Make the smallest edits that fix a real defect — do not rewrite what is already correct. Preserve markdown, link targets, and image paths exactly. If a chunk is fine, leave it alone.
+
+After the tools, do not dump the text in chat. A short note is enough.`;
 }
 
-export function reviewAgentUserPrompt(opts: { original: string; translation: string }): string {
-  return `<original>
-${opts.original}
-</original>
-<translate>
-${opts.translation}
-</translate>`;
+export function reviewAgentUserPrompt(opts: { ids: number[]; chunkCount: number }): string {
+  const first = opts.ids[0]!;
+  const last = opts.ids[opts.ids.length - 1]!;
+  const neighbours = [first > 0 ? first - 1 : null, last < opts.chunkCount - 1 ? last + 1 : null]
+    .filter((id): id is number => id !== null)
+    .join(' and ');
+  const joins = neighbours
+    ? ` Also read chunk ${neighbours} — you may not edit ${opts.ids.length === 1 ? 'it' : 'them'}, but it shows how your range joins the rest of the book.`
+    : '';
+  return `Check the translation of chunks ${opts.ids.join(', ')} (of ${opts.chunkCount} chunks in this book).
+
+Read each one with read_original_chunk and read_translated_chunk. If you find errors in the translation, fix them with edit_translated_chunk. If you find badly translated passages, fix those too.${joins}
+
+Start with chunk ${first}.`;
 }

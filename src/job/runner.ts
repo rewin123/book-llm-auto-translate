@@ -6,7 +6,7 @@ import { mergeGlossary, upsertGlossary, type GlossaryEntry } from '../glossary/i
 import { createLlmClient, stripHarnessMarkers } from '../llm/index.ts';
 import type { StoredProviders } from '../llm/presets.ts';
 import { runReviewAgent } from '../review/agent.ts';
-import { applyReviewEdit, applyReviewedTranslation } from '../review/edit.ts';
+import { applyChunkEdit } from '../review/edit.ts';
 import { runStyleAgent } from '../style/agent.ts';
 import { longestChunkIndex } from '../verify/chunk.ts';
 import { editStyleGuideline } from '../verify/guide.ts';
@@ -21,7 +21,6 @@ import { estimateCost, etaFromTimings } from './cost.ts';
 import {
   groupBigChunks,
   groupReviewWindows,
-  splitReviewWaves,
   splitTranslateWindows,
   type TranslateWindow,
 } from './windows.ts';
@@ -94,7 +93,8 @@ export class JobRunner {
   verifyPair: TranslatedPair | null = null;
   reviewIndex = 0;
   reviewTotal = 0;
-  reviewedByWindow: Record<string, true> = {};
+  /** Chunk indices the review pass has already committed. */
+  reviewedChunks: Record<string, true> = {};
   pausedDuring: 'style' | 'glossary' | 'translate' | 'verify' | 'translateReview' | null = null;
   private persistChain: Promise<void> = Promise.resolve();
   /**
@@ -194,9 +194,8 @@ export class JobRunner {
 
   get liveIndex(): number {
     if (this.phase === 'translateReview' && this.book) {
-      const windows = groupReviewWindows(this.book.chunks.length, this.reviewBatch);
-      for (const w of windows) {
-        if (!this.reviewedByWindow[String(w.id)]) return w.from;
+      for (let i = 0; i < this.book.chunks.length; i++) {
+        if (!this.reviewedChunks[String(i)]) return i;
       }
     }
     const done = new Set(this.translated.map((t) => t.index));
@@ -250,7 +249,7 @@ export class JobRunner {
       pausedDuring: this.pausedDuring ?? undefined,
       verifyIndex: this.verifyIndex,
       verifyPair: this.verifyPair ?? undefined,
-      reviewedByWindow: { ...this.reviewedByWindow },
+      reviewedChunks: { ...this.reviewedChunks },
     };
     this.persistChain = this.persistChain.then(
       () => this.writeCheckpoint(cp),
@@ -322,7 +321,7 @@ export class JobRunner {
     this.verifyPair = null;
     this.reviewIndex = 0;
     this.reviewTotal = 0;
-    this.reviewedByWindow = {};
+    this.reviewedChunks = {};
     this.phase = 'idle';
     this.log('info', 'parsed', {
       title: this.book.title,
@@ -406,10 +405,10 @@ export class JobRunner {
     this.verifyPair = cp.verifyPair
       ? { ...cp.verifyPair, translation: stripHarnessMarkers(cp.verifyPair.translation) }
       : null;
-    this.reviewedByWindow = cp.reviewedByWindow ?? {};
+    this.reviewedChunks = cp.reviewedChunks ?? {};
     const reviewWindows = groupReviewWindows(this.book.chunks.length, this.reviewBatch);
     this.reviewTotal = reviewWindows.length;
-    this.reviewIndex = reviewWindows.filter((w) => this.reviewedByWindow[String(w.id)]).length;
+    this.reviewIndex = reviewWindows.filter((w) => this.isWindowReviewed(w)).length;
     this.pausedDuring =
       cp.pausedDuring ??
       (cp.phase === 'glossary'
@@ -513,7 +512,7 @@ export class JobRunner {
     this.verifyPair = null;
     this.reviewIndex = 0;
     this.reviewTotal = 0;
-    this.reviewedByWindow = {};
+    this.reviewedChunks = {};
     this.emit();
   }
 
@@ -852,37 +851,27 @@ export class JobRunner {
     this.index = this.translated.length;
   }
 
-  private commitReviewSlice(slice: Chunk[], parts: string[]) {
-    let changed = false;
-    for (let i = 0; i < slice.length; i++) {
-      const pair = this.translated.find((t) => t.index === slice[i]!.index);
-      if (!pair) continue;
-      const next = applyReviewedTranslation(pair, stripHarnessMarkers(parts[i]!));
-      if (next === pair) continue;
-      this.commitPair(next);
-      changed = true;
+  private isWindowReviewed(window: TranslateWindow): boolean {
+    for (let i = window.from; i < window.to; i++) {
+      if (!this.reviewedChunks[String(i)]) return false;
     }
-    if (changed) this.emit();
+    return true;
   }
 
-  private invalidateReviewWindows(indices: number[]) {
-    if (!this.book || indices.length === 0) return;
-    const hit = new Set(indices);
-    for (const w of groupReviewWindows(this.book.chunks.length, this.reviewBatch)) {
-      for (let i = w.from; i < w.to; i++) {
-        if (hit.has(i)) {
-          delete this.reviewedByWindow[String(w.id)];
-          break;
-        }
-      }
-    }
-    this.reviewIndex = Object.keys(this.reviewedByWindow).length;
+  private invalidateReviewedChunks(indices: number[]) {
+    for (const i of indices) delete this.reviewedChunks[String(i)];
+    if (!this.book) return;
+    this.reviewIndex = groupReviewWindows(this.book.chunks.length, this.reviewBatch).filter((w) =>
+      this.isWindowReviewed(w),
+    ).length;
   }
 
   /**
-   * Post-translate seam review. Windows of `reviewBatch` chunks overlap by one
-   * so every chunk boundary is visible. Even/odd waves run in parallel so two
-   * agents never write the same overlap chunk at once.
+   * Post-translate review. The book is cut into disjoint windows of
+   * `reviewBatch` chunks and each window gets an agent that reads and edits
+   * chunks by id. An edit is confined to the chunk it names, so nothing moves
+   * across a chunk boundary and no two agents ever write the same chunk — the
+   * book is only stitched back together in `pack()`, after this pass.
    */
   async runTranslateReview() {
     if (!this.book || !this.settings || !this.stored) return;
@@ -898,13 +887,13 @@ export class JobRunner {
     this.failure = null;
     const windows = groupReviewWindows(this.book.chunks.length, this.reviewBatch);
     this.reviewTotal = windows.length;
-    this.reviewIndex = windows.filter((w) => this.reviewedByWindow[String(w.id)]).length;
+    this.reviewIndex = windows.filter((w) => this.isWindowReviewed(w)).length;
     this.emit();
     const signal = this.abort.signal;
     try {
-      const { even, odd } = splitReviewWaves(windows);
-      await this.runReviewWave(even, signal);
-      await this.runReviewWave(odd, signal);
+      const pending = windows.filter((w) => !this.isWindowReviewed(w));
+      const slots = splitTranslateWindows(pending.length, this.concurrency);
+      await Promise.all(slots.map((slot) => this.runReviewSlot(pending, slot, signal)));
       await this.pack();
       this.phase = 'done';
       this.endPass();
@@ -914,13 +903,6 @@ export class JobRunner {
     } catch (err) {
       await this.handleFailure(err, 'pausedReview');
     }
-  }
-
-  private async runReviewWave(windows: TranslateWindow[], signal: AbortSignal) {
-    const pending = windows.filter((w) => !this.reviewedByWindow[String(w.id)]);
-    if (pending.length === 0) return;
-    const slots = splitTranslateWindows(pending.length, this.concurrency);
-    await Promise.all(slots.map((slot) => this.runReviewSlot(pending, slot, signal)));
   }
 
   private async runReviewSlot(
@@ -936,18 +918,13 @@ export class JobRunner {
   private async runReviewWindow(window: TranslateWindow, signal: AbortSignal) {
     if (!this.book || !this.settings || !this.stored) return;
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-    const key = String(window.id);
-    if (this.reviewedByWindow[key]) return;
+    if (this.isWindowReviewed(window)) return;
 
-    const slice = this.book.chunks.slice(window.from, window.to);
-    const originals: string[] = [];
-    const parts: string[] = [];
-    for (const chunk of slice) {
-      const pair = this.translated.find((t) => t.index === chunk.index);
-      originals.push(pair?.original ?? chunk.markdown);
-      parts.push(stripHarnessMarkers(pair?.translation ?? chunk.markdown));
-    }
-    const originalJoined = originals.join('');
+    const chunkCount = this.book.chunks.length;
+    const ids: number[] = [];
+    for (let i = window.from; i < window.to; i++) ids.push(i);
+    const owned = new Set(ids);
+    const pairFor = (id: number) => this.translated.find((t) => t.index === id);
 
     this.log('info', 'reviewWindow', {
       n: window.id + 1,
@@ -963,26 +940,41 @@ export class JobRunner {
       targetLang: this.settings.targetLang,
       styleGuide: this.styleGuide,
       glossary: this.glossary,
-      original: originalJoined,
-      translation: parts.join(''),
-      from: window.from,
-      to: window.to,
-      chunkCount: this.book.chunks.length,
+      ids,
+      chunkCount,
       onRetry: (info) => this.logRetry(info),
       tools: {
-        readTranslate: () => parts.join(''),
-        editTranslate: (oldStr, newStr) => {
-          const result = applyReviewEdit(parts, originalJoined, oldStr, newStr);
-          if (result === 'ok') this.commitReviewSlice(slice, parts);
+        readOriginalChunk: (id) => {
+          const chunk = this.book?.chunks[id];
+          if (!chunk) return `err: no chunk ${id}; the book has chunks 0..${chunkCount - 1}`;
+          return pairFor(id)?.original ?? chunk.markdown;
+        },
+        readTranslatedChunk: (id) => {
+          const chunk = this.book?.chunks[id];
+          if (!chunk) return `err: no chunk ${id}; the book has chunks 0..${chunkCount - 1}`;
+          return stripHarnessMarkers(pairFor(id)?.translation ?? chunk.markdown);
+        },
+        editTranslatedChunk: (id, oldStr, newStr) => {
+          if (!owned.has(id)) {
+            return `err: chunk ${id} is not in your task; you may edit ${ids.join(', ')}`;
+          }
+          const pair = pairFor(id);
+          if (!pair) return `err: chunk ${id} has no translation yet`;
+          const { result, pair: next } = applyChunkEdit(pair, oldStr, newStr);
+          if (result === 'ok' && next !== pair) {
+            this.commitPair(next);
+            this.log('info', 'reviewEdit', { n: id + 1 });
+            this.emit();
+          }
           return result;
         },
       },
     });
 
-    this.commitReviewSlice(slice, parts);
-
-    this.reviewedByWindow[key] = true;
-    this.reviewIndex = Object.keys(this.reviewedByWindow).length;
+    for (const id of ids) this.reviewedChunks[String(id)] = true;
+    this.reviewIndex = groupReviewWindows(chunkCount, this.reviewBatch).filter((w) =>
+      this.isWindowReviewed(w),
+    ).length;
     await this.persist();
     this.emit();
   }
@@ -1038,7 +1030,7 @@ export class JobRunner {
           });
         } else {
           this.log('chunk', 'chunkDone', { n: idx + 1, chapter: chunk.chapterTitle }, result.markdown);
-          this.invalidateReviewWindows([idx]);
+          this.invalidateReviewedChunks([idx]);
         }
         await this.persist();
         this.emit();
